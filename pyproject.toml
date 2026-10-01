@@ -1,0 +1,33 @@
+[build-system]
+requires = ["hatchling>=1.27"]
+build-backend = "hatchling.build"
+
+[project]
+name = "netconverter-terminal"
+version = "0.1.1"
+description = "NetConverter terminal client — ASA to Palo Alto migration and configuration analysis"
+readme = "README.md"
+license = "MIT"
+license-files = ["LICENSE"]
+authors = [{name = "ValeronLabs LLC"}]
+requires-python = ">=3.12"
+dependencies = ["httpx==0.28.1", "textual==8.2.8", "keyring==25.7.0", "pydantic==2.13.5"]
+
+[project.urls]
+Homepage = "https://netconverter.ai"
+Repository = "https://github.com/valeronlabs/netconverter_terminals"
+Documentation = "https://github.com/valeronlabs/netconverter_terminals/blob/main/QUICK_START.md"
+Issues = "https://github.com/valeronlabs/netconverter_terminals/issues"
+
+[project.scripts]
+netconverter = "netconverter_terminal.cli:main"
+
+[dependency-groups]
+dev = ["pytest>=8", "pytest-asyncio>=0.25", "build>=1"]
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/netconverter_terminal"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+asyncio_mode = "auto"
