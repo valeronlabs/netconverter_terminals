@@ -40,16 +40,16 @@ The client requires Python 3.12 or newer. uv can install the required interprete
 uv python install 3.12
 ```
 
-Download the wheel and checksums from the [v0.1.3 release](https://github.com/valeronlabs/netconverter_terminals/releases/tag/v0.1.3),
+Download the wheel and checksums from the [v0.1.4 release](https://github.com/valeronlabs/netconverter_terminals/releases/tag/v0.1.4),
 or run:
 
 ```sh
-mkdir -p ~/Downloads/netconverter-terminal-0.1.3
-cd ~/Downloads/netconverter-terminal-0.1.3
-curl --fail --location --remote-name https://github.com/valeronlabs/netconverter_terminals/releases/download/v0.1.3/netconverter_terminal-0.1.3-py3-none-any.whl
-curl --fail --location --remote-name https://github.com/valeronlabs/netconverter_terminals/releases/download/v0.1.3/SHA256SUMS
+mkdir -p ~/Downloads/netconverter-terminal-0.1.4
+cd ~/Downloads/netconverter-terminal-0.1.4
+curl --fail --location --remote-name https://github.com/valeronlabs/netconverter_terminals/releases/download/v0.1.4/netconverter_terminal-0.1.4-py3-none-any.whl
+curl --fail --location --remote-name https://github.com/valeronlabs/netconverter_terminals/releases/download/v0.1.4/SHA256SUMS
 shasum -a 256 -c SHA256SUMS
-uv tool install --python 3.12 ./netconverter_terminal-0.1.3-py3-none-any.whl
+uv tool install --python 3.12 ./netconverter_terminal-0.1.4-py3-none-any.whl
 uv tool update-shell
 ```
 
@@ -71,7 +71,7 @@ The folder you launch from is your workspace. For an initial synthetic demo:
 ```sh
 mkdir -p ~/NetConverter-Demo
 cd ~/NetConverter-Demo
-curl --fail --location --output demo-asa.cfg https://raw.githubusercontent.com/valeronlabs/netconverter_terminals/v0.1.3/examples/demo-asa.cfg
+curl --fail --location --output demo-asa.cfg https://raw.githubusercontent.com/valeronlabs/netconverter_terminals/v0.1.4/examples/demo-asa.cfg
 wc -c demo-asa.cfg
 netconverter
 ```
@@ -148,10 +148,10 @@ trm_….report.txt
 trm_….full-report.txt
 trm_….evidence.txt
 trm_….evidence.xlsx
-trm_….evidence.json
-trm_….pipeline-evidence.json
 ```
 
+The terminal skips `evidence.json` and `pipeline-evidence.json`. It downloads
+the converted configuration, YAML, reports, and TXT/XLSX evidence when available.
 The job manifest determines actual names and available files. A failed validation
 may provide evidence without a verified converted configuration. Files are saved
 beside the source, with job-qualified names and verified hashes. Originals remain

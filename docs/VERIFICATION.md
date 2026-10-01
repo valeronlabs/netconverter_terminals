@@ -1,6 +1,6 @@
 # Pilot verification status
 
-Updated for client 0.1.3, October 1, 2026.
+Updated for client 0.1.4, October 1, 2026.
 
 ## Client checks
 
@@ -10,6 +10,13 @@ workspace and byte boundaries, canary-based model-payload checks, forbidden
 operations, retry idempotency, restart/resume, revision selection, and preservation
 of originals and existing outputs. Run it using [CONTRIBUTING.md](../CONTRIBUTING.md).
 These are client tests; mock responses do not prove a live provider/model works.
+
+## 0.1.4 artifact selection
+
+The 42-case client suite passes. A bounded download of the existing synthetic
+production job verifies that six retained artifacts download with checked hashes
+and the two excluded JSON evidence files are not requested or written. No new
+conversion is submitted for this client-only change.
 
 ## 0.1.3 keyboard workflow checks
 

@@ -64,6 +64,10 @@ client does not invent an ETA, raw engine logs, cancellation support, or encrypt
 output archives. Downloads show actual local files, sizes and directories after
 hash verification. Esc cancels a question; it does not cancel a submitted job.
 
+Artifact downloads omit `evidence.json` and `pipeline-evidence.json`. TXT/XLSX
+evidence, reports, YAML and converted configurations remain available. Explicit
+follow-up query results still save their JSON/TXT findings.
+
 ## Conversion settings
 
 Required choices come from live server capabilities. The following field names
