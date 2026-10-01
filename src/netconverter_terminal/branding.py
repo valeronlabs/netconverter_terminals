@@ -8,12 +8,16 @@ BLUE = '#3b82f6'
 MUTED = '#8b8b8d'
 
 
-def banner(folder):
+def banner(folder, compact=False, width=120):
     grid = Table.grid(padding=(0, 2))
-    grid.add_column(width=9, no_wrap=True)
+    grid.add_column(width=19, no_wrap=True)
     grid.add_column(ratio=1)
-    mark = Text('┌───────┐\n│ N › C │\n└───────┘', style='bold ' + BLUE)
-    title = Text('NetConverter', style='bold #ececec')
+    mark = Text('┌─────────────────┐\n│ NET', style='bold ' + BLUE)
+    mark.append('CONVERTER', style='bold #0a0a0b on '+BLUE)
+    mark.append('.ai │\n└─────────────────┘', style='bold '+BLUE)
+    title = Text('NET', style='bold #ececec')
+    title.append('CONVERTER', style='bold '+BLUE)
+    title.append('.ai', style='bold #ececec')
     title.append('  v' + version('netconverter-terminal') + '  ·  PILOT\n', style=MUTED)
     title.append('ASA → Palo Alto only', style='bold ' + BLUE)
     title.append('  ·  SET / XML / Panorama\n', style='#ececec')
@@ -21,6 +25,11 @@ def banner(folder):
     home = str(Path.home())
     if folder_label.startswith(home + '/'):
         folder_label = '~' + folder_label[len(home):]
-    title.append(folder_label, style=MUTED)
+    from .presentation import literal
+    folder_text=literal(folder_label, MUTED)
+    folder_text.truncate(max(16,width-(4 if compact else 25)),overflow="ellipsis")
+    title.append(folder_text)
+    if compact:
+        return title
     grid.add_row(mark, title)
     return grid

@@ -8,7 +8,7 @@ from pathlib import Path
 from .api import Client, DEFAULT_BASE, APIError
 from .credentials import get_secret, save_secret
 from .controller import Controller
-from .providers import Provider
+from .providers import Provider, ProviderError
 from .commands import execute
 from .setup import configure, load_settings, account
 
@@ -146,6 +146,9 @@ def main(argv=None):
                         )
                 return
         print(json.dumps(result, indent=2, default=str))
+    except ProviderError as exc:
+        print(str(exc))
+        raise SystemExit(1) from None
     except APIError as exc:
         print(str(exc))
         if exc.detail:

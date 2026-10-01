@@ -1,6 +1,6 @@
 # Pilot verification status
 
-Recorded for the initial public client release, October 1, 2026.
+Updated for client 0.1.2, October 1, 2026.
 
 ## Client checks
 
@@ -10,6 +10,22 @@ workspace and byte boundaries, canary-based model-payload checks, forbidden
 operations, retry idempotency, restart/resume, revision selection, and preservation
 of originals and existing outputs. Run it using [CONTRIBUTING.md](../CONTRIBUTING.md).
 These are client tests; mock responses do not prove a live provider/model works.
+
+## 0.1.2 interface and setup checks
+
+The automated suite has 42 passing cases, including the approved welcome layout
+at 126×41 and 80×24, readable help, file-browser upload boundaries, ASA-only Quick
+Convert, oversized inputs, explicit conversion decisions, model retry preserving
+a working connection, and failed-download retry. Synthetic screenshots of the
+actual Textual application were inspected at both sizes. No customer files or keys
+were used in screenshots or public tests. The design's example logs, ETA, archive
+encryption, cancellation and fabricated outputs are not product capabilities.
+
+The original customer OpenAI failure was not diagnosed from the old generic error.
+The release adds actionable safe errors and retry; live hosted-model acceptance
+remains open. No server code or conversion algorithm changes are included. The updated client
+also passed a read-only production HTTPS capabilities/job-list check using the
+existing terminal profile. This check submitted no jobs and used no allowance.
 
 ## Service workflow evidence
 

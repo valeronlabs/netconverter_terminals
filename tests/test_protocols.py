@@ -144,3 +144,30 @@ def test_no_redirect_or_arbitrary_endpoint():
         c.request("GET", "https://evil.invalid")
     with pytest.raises(ValueError):
         Provider("ollama", "model", endpoint="https://remote.invalid")
+
+
+@pytest.mark.parametrize('status,code,expected', [
+    (401,'invalid_api_key','authentication'), (403,None,'access'),
+    (404,'model_not_found','model'), (429,'insufficient_quota','quota'),
+    (429,'rate_limit_exceeded','rate_limit'), (400,None,'request'),
+    (500,None,'service'),
+])
+def test_provider_errors_are_actionable_without_echoing_payload(status,code,expected):
+    p=Provider('openai','pilot-model','test-key',transport=httpx.MockTransport(
+        lambda r:httpx.Response(status,json={'error':{'message':MARKER,'code':code}})))
+    with pytest.raises(ProviderError) as exc:
+        p.select('Find unused objects')
+    assert exc.value.code==expected
+    assert MARKER not in str(exc.value)
+    p.close()
+
+
+def test_timeout_classification():
+    def fail(request):
+        raise httpx.ReadTimeout(MARKER,request=request)
+    p=Provider('openai','pilot-model','test-key',transport=httpx.MockTransport(fail))
+    with pytest.raises(ProviderError) as exc:
+        p.select('analyze')
+    assert exc.value.code=='timeout'
+    assert MARKER not in str(exc.value)
+    p.close()

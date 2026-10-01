@@ -13,7 +13,7 @@ netconverter --provider ollama --model YOUR_INSTALLED_MODEL model-test
 ## TUI and interactive plain mode
 
 `netconverter plain` opens a prompt without the full-screen interface. Use `/help`
-and `/quit`. In the TUI, bare `/open` and `/convert` open forms; in plain mode,
+and `/quit`. In the TUI, bare `/open`, `/convert`, and `/model` open forms; in plain mode,
 provide their arguments as shown below.
 
 | Command | Purpose |
@@ -22,6 +22,8 @@ provide their arguments as shown below.
 | `/analyze` | Submit analysis for the selected source or target |
 | `/optimize` | Request supported optimization findings |
 | `/convert {…}` | Submit explicit conversion settings |
+| `/model` (TUI) | Test or repair a model connection with a masked key field |
+| `/home`, `/clear` (TUI) | Return to the welcome screen; clear also clears visible history |
 | `/jobs` | List accessible server jobs |
 | `/resume JOB_ID` | Select a job and fetch status; no argument retries pending work or the active job |
 | `/status` | Fetch authoritative server status |
@@ -47,6 +49,13 @@ fixed operation. Detailed arguments and migration decisions remain explicit user
 inputs. `/optimize` recommendations do not by themselves produce a cleaned config.
 Unused-object results describe structural references, not observed traffic hits;
 review the reason and coverage before removing anything.
+
+The welcome commands are clickable. **Ctrl+O** opens the file browser, **Ctrl+R**
+refreshes status, **F1** shows help, and **Ctrl+Q** exits. Job history includes local
+source/target/submission metadata when available; missing values remain blank.
+Server polling supplies progress and verdicts. The client does not invent an ETA,
+raw engine logs, cancellation support, or encrypted output archives. Downloads
+show actual local filenames, sizes, and directories after hash verification.
 
 ## Conversion settings
 
@@ -121,9 +130,9 @@ shared script. Explicit CLI preferences take precedence over saved preferences.
 | 413 / file too large | Keep the source at or below 50,000 bytes; use `wc -c FILE`; contact NetConverter for larger migrations |
 | 422 / required decisions | Complete the indicated conversion fields using the server's supported choices |
 | 429 / quota or active job | Check `/allowance` and `/jobs`; resume the existing active job or wait for the UTC daily reset |
-| Model unavailable or forbidden operation | Continue using guided commands; rerun `setup` with an accessible model and check `model-test` |
+| Model unavailable or forbidden operation | Continue using guided commands; use `/model` to retry with an accessible model; errors distinguish key, access, quota, rate limit, timeout, and tool incompatibility |
 | Ollama connection fails | Start the local Ollama service and select an already installed tool-capable model; no hosted fallback is attempted |
-| File not listed | Use the relative path field inside the workspace; supported picker extensions are cfg/conf/txt/set/xml |
+| File not listed | Use the relative path field inside the workspace; supported picker extensions are asa/cfg/conf/txt/set/xml |
 | Out-of-workspace path | Launch from a suitable containing folder or place a deliberate copy inside the workspace; escaping symlinks are rejected |
 | Submit interrupted | Keep workspace state and use `/resume`; do not start a duplicate conversion |
 | Download fails or hash mismatch | Retry `/download`; if persistent, retain the job ID and contact support |

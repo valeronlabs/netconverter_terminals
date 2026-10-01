@@ -52,7 +52,45 @@ def abstract_intent(text):
 
 
 class ProviderError(RuntimeError):
-    pass
+    """Only locally authored messages may be displayed; never provider bodies."""
+    MESSAGES = {
+        "authentication": "The provider rejected the API key (401). Enter an API key for this provider; a NetConverter key will not work here.",
+        "access": "This API key cannot access the requested model (403). Check project permissions and model access.",
+        "model": "The model was not found or is not available to this API key. Check the exact API model ID.",
+        "quota": "The provider reports insufficient API quota or credits. Check API billing and project spending limits.",
+        "rate_limit": "The provider is rate limiting requests (429). Wait briefly, then retry.",
+        "request": "The provider rejected the request (400). Check the model ID and its support for Responses/function tools.",
+        "timeout": "The model request timed out. Retry, choose another model, or continue with guided commands.",
+        "connection": "Could not reach the model endpoint. Check connectivity; for Ollama, start the local service.",
+        "service": "The provider is temporarily unavailable. Retry later or use guided commands.",
+        "protocol": "The model did not return one permitted operation. Select a model with function/tool calling support.",
+        "configuration": "Choose a supported provider and an explicit API model ID.",
+        "missing_key": "Enter the provider's API key in the hidden key field.",
+    }
+
+    def __init__(self, code="protocol"):
+        self.code = code if code in self.MESSAGES else "protocol"
+        super().__init__(self.MESSAGES[self.code])
+
+
+def response_error(response):
+    """Classify a closed set of error codes without echoing raw provider text."""
+    code = None
+    try:
+        error = response.json().get("error", {})
+        if isinstance(error, dict):
+            candidate = error.get("code") or error.get("type")
+            if candidate in ("insufficient_quota", "model_not_found", "invalid_api_key"):
+                code = candidate
+    except (ValueError, AttributeError, TypeError):
+        pass
+    if response.status_code == 401 or code == "invalid_api_key":
+        return ProviderError("authentication")
+    if code == "insufficient_quota" or response.status_code == 402:
+        return ProviderError("quota")
+    if code == "model_not_found" or response.status_code == 404:
+        return ProviderError("model")
+    return ProviderError({400:"request", 403:"access", 429:"rate_limit"}.get(response.status_code, "service"))
 
 
 class Provider:
@@ -164,7 +202,8 @@ class Provider:
             }
         try:
             response = self.http.post(url, json=body, headers=headers)
-            response.raise_for_status()
+            if response.is_error:
+                raise response_error(response)
             data = response.json()
             if self.name == "openai":
                 calls = [
@@ -199,7 +238,9 @@ class Provider:
             ):
                 raise ValueError()
             return args["operation"]
-        except (httpx.HTTPError, ValueError, KeyError, IndexError, TypeError):
-            raise ProviderError(
-                "Model unavailable or returned a forbidden operation; guided commands remain available"
-            ) from None
+        except httpx.TimeoutException:
+            raise ProviderError("timeout") from None
+        except httpx.HTTPError:
+            raise ProviderError("connection") from None
+        except (ValueError, KeyError, IndexError, TypeError):
+            raise ProviderError("protocol") from None
