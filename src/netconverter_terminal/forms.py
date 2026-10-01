@@ -11,7 +11,7 @@ from textual.widgets import Button, Label, Select, Input, Checkbox, Static, Coll
 
 
 class ConversionForm(ModalScreen):
-    CSS = """ConversionForm { align: center middle; } #form { width: 90%; max-width: 80; height: auto; max-height: 95%; border: round $accent; padding: 1 2; background: $surface; overflow-y: auto; }"""
+    CSS = """ConversionForm { align: center middle; } #form { width: 90%; max-width: 80; height: auto; max-height: 95%; border: round $accent; padding: 1 2; background: $surface; overflow-y: auto; } .form_actions { height: 3; } .form_actions Button { width: 1fr; margin-right: 1; }"""
 
     def __init__(self, capabilities):
         super().__init__()
@@ -58,8 +58,9 @@ class ConversionForm(ModalScreen):
                 yield Input(placeholder="Default security profile group (optional)", id="default_profile_group")
                 yield Input(placeholder='Zone mapping JSON, e.g. {"inside":"Trust"} (optional)', id="zone_mapping")
             yield Static("", id="error")
-            yield Button("Submit conversion", id="submit", variant="primary")
-            yield Button("Cancel", id="cancel")
+            with Horizontal(classes="form_actions"):
+                yield Button("Submit conversion", id="submit", variant="primary")
+                yield Button("Cancel", id="cancel")
 
     def on_mount(self):
         self.query_one('#panorama_fields').styles.height = 'auto'
@@ -237,7 +238,8 @@ class OpenForm(ModalScreen):
 
 class ModelForm(ModalScreen):
     """Repair model connections without leaving the workspace or exposing a key."""
-    CSS = ConversionForm.CSS.replace("ConversionForm", "ModelForm")
+    CSS = ConversionForm.CSS.replace("ConversionForm", "ModelForm") + "ModelForm.compact #form { max-height: 100%; padding: 0 1; }"
+    BINDINGS=[("escape","cancel","Cancel")]
 
     def __init__(self, root, current=None):
         super().__init__()
@@ -250,15 +252,28 @@ class ModelForm(ModalScreen):
             yield Label('Model connection')
             yield Static('Models choose operations only. Configuration contents and detailed results stay out of model requests.')
             yield Label('Provider')
-            yield Select([(x.title(),x) for x in ('openai','anthropic','gemini','ollama','none')], value=self.current.name if self.current else 'openai', allow_blank=False, id='model_provider')
+            yield Select([('OpenAI','openai'),('Anthropic','anthropic'),('Gemini','gemini'),('Ollama','ollama'),('None · guided commands','none')], value=self.current.name if self.current else 'openai', allow_blank=False, id='model_provider')
             yield Label('Exact API model ID')
             yield Input(value=self.current.model if self.current else '', placeholder='Enter the model ID available to your API account', id='model_id')
             yield Label('Provider API key · hidden')
             yield Input(password=True, placeholder='Paste provider key; leave blank to use a saved key', id='model_key')
             yield Static('Ollama uses your local service and needs no key. Choose None for guided commands.')
             yield Static('',id='error', markup=False)
-            yield Button('Test and connect',id='connect_model',variant='primary')
-            yield Button('Cancel',id='cancel_model')
+            with Horizontal(classes='form_actions'):
+                yield Button('Test and connect',id='connect_model',variant='primary')
+                yield Button('Cancel',id='cancel_model')
+
+    def on_resize(self):
+        self.set_class(self.size.height<32,'compact')
+
+    def on_mount(self):
+        self.set_class(self.size.height<32,'compact')
+        self.query_one('#form').scroll_home(animate=False)
+
+    def action_cancel(self):
+        if not self.connecting:
+            self.query_one('#model_key',Input).value=''
+            self.dismiss(None)
 
     def on_button_pressed(self,event):
         if self.connecting:
