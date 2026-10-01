@@ -7,8 +7,8 @@ from rich.console import Group
 from rich.text import Text
 from textual import work
 from textual.app import App, ComposeResult
-from textual.containers import Horizontal, Vertical
-from textual.widgets import Input, RichLog, Static, ProgressBar, Button, Footer
+from textual.containers import Vertical
+from textual.widgets import Input, RichLog, Static, ProgressBar, OptionList, Footer
 from textual.theme import Theme
 from .commands import execute
 from .api import APIError
@@ -20,35 +20,24 @@ from .presentation import literal, heading, help_view, details_view, jobs_view, 
 class Terminal(App):
     TITLE = 'NetConverter · ASA → Palo Alto'
     ENABLE_COMMAND_PALETTE = False
-    CSS = '''
+    CSS = """
     Screen { layout: vertical; background: #0a0a0b; color: #ececec; }
-    #brand { height: auto; padding: 1 2; border-bottom: solid #2a2a2c; }
-    #context { text-wrap: nowrap; text-overflow: ellipsis; height: auto; min-height: 2; margin: 0 2; padding: 0 0 1 0; border-bottom: solid #2a2a2c; }
-    #welcome { height: 1fr; margin: 1 2 0 2; overflow-y: auto; }
-    #welcome Static { height: auto; margin-bottom: 1; }
-    #welcome Button { height: 1; width: 100%; padding: 0; border: none; background: #0a0a0b; color: #3b82f6; content-align: left middle; text-align: left; }
-    #welcome Button:hover, #welcome Button:focus { background: #1c1c1e; }
-    #start { margin-bottom: 1; text-style: bold; }
-    #navigation { height: 1; margin: 0 2 1 2; }
-    #navigation Button { height: 1; min-width: 10; width: auto; margin-right: 2; padding: 0; border: none; background: #0a0a0b; color: #3b82f6; }
-    #navigation Button:hover, #navigation Button:focus { background: #1c1c1e; }
-    #job_progress { height: auto; margin: 0 2 1 2; color: #8b8b8d; }
-    Screen.compact #brand { padding: 0 2; }
-    Screen.compact #context { padding-bottom: 0; }
-    Screen.compact #composer { height: 5; }
-    Screen.compact #welcome { margin: 0 2; }
-    Screen.compact #welcome Static { margin-bottom: 0; }
-    Screen.compact #start { margin-bottom: 0; }
+    #brand { height: auto; padding: 0 2; margin-top: 1; }
+    #context { height: 2; margin: 1 2; text-wrap: nowrap; text-overflow: ellipsis; color: #8b8b8d; }
     #conversation { height: 1fr; margin: 0 2; background: #0a0a0b; scrollbar-size: 1 1; }
-    #composer { height: 6; margin: 0 2; }
-    #activity { height: 2; border-top: solid #2a2a2c; color: #8b8b8d; text-overflow: ellipsis; text-wrap: nowrap; }
-    #prompt { height: 3; padding: 0 1; border: solid #2a2a2c; background: #141415; }
-    #prompt:focus { border: solid #3b82f6; }
+    #job_progress { height: auto; margin: 0 2; color: #8b8b8d; }
+    #question { height: auto; margin: 1 2 0 2; color: #3b82f6; text-style: bold; }
+    #choices { height: auto; max-height: 8; min-height: 1; margin: 0 2; padding: 0; border: none; background: #0a0a0b; scrollbar-size: 1 1; }
+    #choices:focus { background-tint: transparent; }
+    #choices > .option-list--option-highlighted, #choices:focus > .option-list--option-highlighted { background: #0a0a0b; color: #3b82f6; text-style: bold; }
+    #choice_hint { height: auto; margin: 0 2; color: #8b8b8d; }
+    #composer { height: auto; margin: 0 2; }
+    #activity { height: 1; color: #8b8b8d; text-wrap: nowrap; text-overflow: ellipsis; }
+    #prompt { height: 1; border: none; padding: 0; margin: 1 0; background: #0a0a0b; }
     ProgressBar { height: 1; }
-    .muted { color: #8b8b8d; }
     Footer { background: #0a0a0b; color: #8b8b8d; }
-    '''
-    BINDINGS = [('ctrl+q','quit','Quit'),('ctrl+o','open','Open'),('ctrl+r','refresh','Status'),('f1','help','Help')]
+    """
+    BINDINGS = [('ctrl+q','quit','Quit'),('ctrl+o','open','Open'),('ctrl+r','refresh','Status'),('escape','cancel_input','Cancel choice'),('f1','help','Help')]
 
     def __init__(self,controller):
         super().__init__()
@@ -63,42 +52,33 @@ class Terminal(App):
         self.next_after_open=None
         self.connection_error=False
         self.allowance_stale=False
+        self.answer_callback=None
+        self.choice_values=[]
+        self.text_answer=False
+        from .guided import Guided
+        self.guided=Guided(self)
 
     def compose(self)->ComposeResult:
-        yield Static(banner(self.controller.workspace.root),id='brand')
+        yield Static(banner(self.controller.workspace.root,compact=True),id='brand')
         yield Static(id='context')
-        with Vertical(id='welcome'):
-            yield Static('Welcome. Open a configuration to begin.')
-            yield Static('Selected files go directly to NetConverter. Automatic model requests contain restricted intent; configuration contents stay out of model context.', classes='muted',id='privacy_hint')
-            yield Button('→ /open — choose a configuration to start',id='start')
-            yield Static('Commands', classes='muted')
-            for command,description,identifier in [
-                ('/open','open config','open_config'),('/convert','convert ASA → Palo Alto','convert'),
-                ('/analyze','analyze unused objects, routes, policy','analyze'),('/model','connect model','model'),
-                ('/jobs','view jobs','jobs'),('/help','show all commands','help')]:
-                label=Text(f'{command:12}',style=BLUE)
-                label.append(description,style=MUTED)
-                yield Button(label,id=identifier)
         yield Static('',id='job_progress',markup=False)
         yield RichLog(wrap=True,markup=False,highlight=False,min_width=1,max_lines=3000,id='conversation')
-        with Horizontal(id='navigation'):
-            yield Button('/open',id='nav_open')
-            yield Button('/convert',id='nav_convert')
-            yield Button('/jobs',id='nav_jobs')
-            yield Button('/home',id='nav_home')
+        yield Static('',id='question',markup=False)
+        yield OptionList(id='choices',markup=False,compact=True)
+        yield Static('',id='choice_hint',markup=False)
         with Vertical(id='composer'):
             yield Static('',id='activity')
-            yield Input(placeholder='›  /open to begin · /help for commands',id='prompt')
+            yield Input(placeholder='›  /convert to begin · /help for commands',id='prompt',compact=True)
             yield ProgressBar(total=100,show_eta=False)
         yield Footer()
 
     def on_mount(self):
         self.query_one(ProgressBar).display=False
         self.query_one('#job_progress').display=False
+        self.clear_question()
         self.welcome()
         self.resize_layout()
         self.render_context()
-        self.query_one('#prompt',Input).focus()
         self.dispatch('/allowance',quiet=True)
         self.set_interval(3,self.poll)
 
@@ -107,21 +87,78 @@ class Terminal(App):
             self.resize_layout()
 
     def resize_layout(self):
-        compact=self.size.height<32 or self.size.width<100
-        self.screen.set_class(compact,'compact')
-        self.query_one('#brand',Static).update(banner(self.controller.workspace.root,compact,self.size.width))
-        self.query_one('#privacy_hint',Static).update('Files → NetConverter · restricted intent → model' if compact else 'Selected files go directly to NetConverter. Automatic model requests contain restricted intent; configuration contents stay out of model context.')
+        self.query_one('#brand',Static).update(banner(self.controller.workspace.root,True,self.size.width))
+        self.query_one('#choices').styles.max_height=5 if self.size.height<32 else 8
 
     def welcome(self):
-        self.query_one('#welcome').display=True
-        self.query_one('#conversation').display=False
-        self.query_one('#navigation').display=False
-        self.query_one('#job_progress').display=False
+        self.query_one(RichLog).write(Group(
+            literal('ASA → Palo Alto. Start with /convert.', 'bold'),
+            literal('Choose with ↑ ↓ and Enter. Esc cancels a choice. No mouse needed.',MUTED),
+            Text(''),
+            literal('/convert   Select an ASA file and walk through migration settings',BLUE),
+            literal('/open      Select a configuration for analysis',BLUE),
+            literal('/analyze   Analyze the selected source or generated target',BLUE),
+            literal('/model     Connect or repair your model',BLUE),
+            literal('/jobs      Find a server job     /help  All commands',BLUE),
+            Text(''),literal('Files go directly to NetConverter; model requests contain restricted intent.',MUTED),Text('')))
 
-    def show_conversation(self):
-        self.query_one('#welcome').display=False
-        self.query_one('#conversation').display=True
-        self.query_one('#navigation').display=True
+    def write_note(self,message):
+        self.query_one(RichLog).write(literal(message,MUTED))
+
+    def clear_question(self):
+        self.answer_callback=None
+        self.choice_values=[]
+        self.text_answer=False
+        for widget in ('#choices','#question','#choice_hint'):
+            self.query_one(widget).display=False
+        field=self.query_one('#prompt',Input)
+        field.password=False
+        field.value=''
+        field.disabled=False
+        field.display=True
+        field.focus()
+
+    def ask_choice(self,title,choices,callback):
+        self.clear_question()
+        self.answer_callback=callback
+        self.choice_values=choices
+        self.query_one('#question',Static).update(literal(title))
+        options=self.query_one('#choices',OptionList)
+        options.clear_options()
+        options.add_options([literal(f"{i+1}. {label}") for i,(label,_) in enumerate(choices)])
+        options.highlighted=0
+        self.query_one('#choice_hint',Static).update('↑ ↓ choose · Enter continue · Esc cancel')
+        for widget in ('#choices','#question','#choice_hint'):
+            self.query_one(widget).display=True
+        self.query_one('#prompt',Input).display=False
+        options.focus()
+
+    def ask_text(self,title,callback,secret=False,hint=''):
+        self.clear_question()
+        self.answer_callback=callback
+        self.text_answer=True
+        self.query_one('#question',Static).update(literal(title))
+        self.query_one('#question').display=True
+        self.query_one('#choice_hint',Static).update(literal(hint or 'Enter continue · Esc cancel'))
+        self.query_one('#choice_hint').display=True
+        field=self.query_one('#prompt',Input)
+        field.password=secret
+        field.placeholder='Hidden key · Enter to continue' if secret else '›  Enter a value'
+        field.focus()
+
+    def on_option_list_option_selected(self,event):
+        if self.answer_callback and not self.text_answer and not self.busy:
+            callback=self.answer_callback
+            label,value=self.choice_values[event.option_index]
+            self.clear_question()
+            self.write_note('› '+label)
+            callback(value)
+
+    def action_cancel_input(self):
+        if self.answer_callback and not self.busy:
+            self.clear_question()
+            self.write_note('Choice cancelled. No job was submitted by this choice.')
+            self.render_context()
 
     def render_context(self):
         c=self.controller
@@ -141,45 +178,49 @@ class Terminal(App):
         job=c.state.get('active_job')
         status='Working…' if self.busy else (self.last_status.replace('_',' ') if job else 'Ready')
         self.query_one('#activity',Static).update(literal(f'{job+"  ·  " if job else ""}{status}  ·  {source}',MUTED))
-        self.query_one('#prompt',Input).placeholder='›  Ask about this configuration, or /help' if provider else '›  Type /open to begin, or /help'
+        if not self.answer_callback:
+            self.query_one('#prompt',Input).placeholder='›  Ask about this configuration, or /help' if provider else '›  /convert  /open  /model  /help'
 
     def on_input_submitted(self,event:Input.Submitted):
         if self.busy:
             return
         text=event.value.strip()
         event.input.value=''
-        if text:
+        if self.answer_callback and self.text_answer:
+            callback=self.answer_callback
+            secret=event.input.password
+            self.clear_question()
+            if text and not secret:
+                self.write_note('› '+text)
+            callback(text)
+        elif text:
+            # Never echo arbitrary free text or credentials into conversation history.
             self.dispatch(text)
 
     def dispatch(self,text,quiet=False):
-        if self.busy:
+        if self.busy or self.answer_callback:
             return
-        from .forms import OpenForm,ConversionForm,ModelForm
         if text in {'/clear','/home'}:
             if text=='/clear':
                 self.query_one(RichLog).clear()
             self.welcome()
             return
         if text=='/help':
-            self.show_conversation()
             self.query_one(RichLog).write(help_view())
             return
         if text=='/open':
-            self.push_screen(OpenForm(self.controller.workspace.root),self.open_selected)
+            self.guided.open()
             return
         if text=='/model':
-            self.push_screen(ModelForm(self.controller.workspace.root,self.controller.provider),self.model_selected)
+            self.guided.model()
             return
         if text=='/convert':
-            if not self.controller.state.get('selected'):
-                self.show_error('Choose a configuration first: /open.')
-            elif not self.controller.allowance.get('targets'):
-                self.show_error('Use /allowance to load the server’s conversion settings, then /convert.')
-            else:
-                self.push_screen(ConversionForm(self.controller.allowance),self.submit_conversion)
+            self.guided.convert()
+            return
+        if text=='/analyze' and not self.controller.state.get('selected'):
+            self.guided.open('analyze')
             return
         if text in {'/flow','/dependencies'}:
-            self.show_conversation()
             example='/flow {"source_ip":"192.0.2.10","destination_ip":"198.51.100.10","protocol":"tcp","destination_port":80}' if text=='/flow' else '/dependencies {"object_name":"NAME"}'
             self.query_one(RichLog).write(heading('Enter explicit parameters',Group(literal(example),literal('These values go directly to NetConverter, never to the model.',MUTED))))
             return
@@ -193,15 +234,8 @@ class Terminal(App):
             self.update_progress('Submitting job · waiting for the server job ID…')
         elif text=='/download':
             self.update_progress('Downloading artifacts · verifying SHA-256 hashes…')
-        if not quiet:
-            self.show_conversation()
         self.render_context()
         self.run_command(text,quiet)
-
-    def on_button_pressed(self,event):
-        command={'start':'/open','nav_open':'/open','nav_convert':'/convert','nav_jobs':'/jobs','nav_home':'/home','open_config':'/open','analyze':'/analyze','convert':'/convert','jobs':'/jobs','model':'/model','help':'/help'}.get(event.button.id)
-        if command:
-            self.dispatch(command)
 
     def open_selected(self,selection):
         if selection:
@@ -225,10 +259,39 @@ class Terminal(App):
         message='Model connected: '+provider.name+' / '+provider.model if provider else 'Guided commands selected.'
         if not stored:
             message+=' Key held in memory only for this session.'
-        self.show_conversation()
         self.query_one(RichLog).write(heading('Model connection',literal(message)))
         self.render_context()
         self.query_one('#prompt',Input).focus()
+
+    def connect_model_inline(self,name,model,key):
+        self.busy=True
+        self.write_note('Testing a synthetic model tool call…')
+        self.test_model(name,model,key)
+
+    @work(thread=True,exclusive=True,group='model')
+    def test_model(self,name,model,key):
+        from .setup import connect_model,save_model
+        provider=None
+        try:
+            provider=connect_model(name,model,key)
+            stored=save_model(self.controller.workspace.root,provider)
+        except Exception as exc:
+            if provider:
+                provider.close()
+            message=str(exc) if isinstance(exc,ProviderError) else 'Model setup could not be completed. Check settings and workspace access.'
+            self.call_from_thread(self.model_failed,message)
+            return
+        self.call_from_thread(self.model_connected,provider,stored)
+
+    def model_failed(self,message):
+        self.busy=False
+        self.show_error(message)
+        self.ask_choice('Model connection', [('Retry model setup',True),('Keep current connection / guided commands',False)],
+                        lambda retry: self.guided.model() if retry else self.render_context())
+
+    def model_connected(self,provider,stored):
+        self.busy=False
+        self.model_selected((provider,stored))
 
     @work(thread=True,exclusive=True,group='commands')
     def run_command(self,text,quiet=False):
@@ -273,13 +336,10 @@ class Terminal(App):
         view.display=True
 
     def show_error(self,message):
-        self.show_conversation()
         self.query_one(RichLog).write(heading('Next step',literal(message,'#eab308')))
 
     def show_result(self,result,quiet=False):
         log=self.query_one(RichLog)
-        if not quiet or 'status' in result or 'saved' in result:
-            self.show_conversation()
         if isinstance(result,list):
             result={'jobs':result}
         if 'remaining' in result:
@@ -336,7 +396,7 @@ class Terminal(App):
             self.dispatch('/download',quiet=True)
 
     def poll(self):
-        if len(self.screen_stack)==1 and not self.busy and self.controller.state.get('active_job') and self.last_status not in {'completed','failed','cancelled'}:
+        if not self.answer_callback and len(self.screen_stack)==1 and not self.busy and self.controller.state.get('active_job') and self.last_status not in {'completed','failed','cancelled'}:
             self.dispatch('/status',quiet=True)
 
     def action_refresh(self):

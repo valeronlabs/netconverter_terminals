@@ -24,8 +24,8 @@ def help_view():
     table.add_column(style=BLUE, no_wrap=True)
     table.add_column()
     for command, description in [
-        ('/open', 'Choose and upload a configuration'),
-        ('/convert', 'Choose ASA → Palo Alto migration settings'),
+        ('/open', 'Choose a file and confirm its source format/upload'),
+        ('/convert', 'ASA file → Palo Alto output → review → submit'),
         ('/analyze', 'Analyze the selected configuration'),
         ('/unused_objects', 'Explain unused objects after analysis'),
         ('/routes  /policy  /nat', 'Inspect supported findings'),

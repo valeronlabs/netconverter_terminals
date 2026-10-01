@@ -83,7 +83,7 @@ def main(argv=None):
         if args.command == "setup" or (args.command in (None, "run") and not settings):
             client, provider = configure(args.workspace, {"server": args.server, "provider": args.provider, "model": args.model})
             from .tui import Terminal
-            Terminal(Controller(Path(args.workspace), client, provider)).run()
+            Terminal(Controller(Path(args.workspace), client, provider)).run(mouse=False)
             return
         if args.provider:
             provider = Provider(
@@ -110,7 +110,7 @@ def main(argv=None):
         if args.command in (None, "run"):
             from .tui import Terminal
 
-            Terminal(c).run()
+            Terminal(c).run(mouse=False)
             return
         if args.command in {"analyze", "optimize", "convert"}:
             c.select(args.file, args.vendor)

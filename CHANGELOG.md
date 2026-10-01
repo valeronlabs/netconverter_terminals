@@ -1,5 +1,19 @@
 # Changelog
 
+## 0.1.3 — 2026-10-01
+
+- Replace modal forms, dropdowns and oversized buttons with compact inline
+  keyboard questions: arrow keys choose, Enter continues, Esc cancels a choice.
+- Disable mouse capture so normal terminal text selection works.
+- `/convert` starts with an ASA source, then asks separately for Palo Alto output,
+  server-supported options, cleanup and optional advanced overrides. Show the
+  review before explicit job submission; uploads are separately confirmed.
+- `/open`, `/analyze` and `/model` use the same inline flow. Keep keys masked and
+  out of conversation history, preserve model connections on failed retries.
+- A selected Palo Alto source now leads `/convert` to ASA file selection instead
+  of leaving the user at a source-format validation error.
+- Preserve server job status, warnings, downloads, privacy and no-clobber behavior.
+
 ## 0.1.2 — 2026-10-01
 
 - Implement the approved NETCONVERTER.ai terminal design: compact welcome commands,
