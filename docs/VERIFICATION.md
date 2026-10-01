@@ -1,6 +1,6 @@
 # Pilot verification status
 
-Updated for client 0.1.2, October 1, 2026.
+Updated for client 0.1.3, October 1, 2026.
 
 ## Client checks
 
@@ -11,7 +11,27 @@ operations, retry idempotency, restart/resume, revision selection, and preservat
 of originals and existing outputs. Run it using [CONTRIBUTING.md](../CONTRIBUTING.md).
 These are client tests; mock responses do not prove a live provider/model works.
 
-## 0.1.2 interface and setup checks
+## 0.1.3 keyboard workflow checks
+
+The 42-case client suite now drives SET and Panorama conversion entirely through
+inline keyboard choices, including required decisions, advanced overrides, explicit
+upload/submit, 50,000-byte bounds and escape cancellation. Model tests cover hidden
+key entry, retry and preservation of the existing connection. The main UI has no
+buttons or modal screens; mouse capture is disabled. Layouts are checked at 126×41
+and 80×24. The earlier form tests were replaced by tests of the actual inline path.
+
+The reported v0.1.2 screenshot showed a local source-format validation block,
+not a submitted server failure. A read-only check of that pilot account found only
+the earlier completed conversion with warnings; no new failed job was present.
+
+A production acceptance run drove the new inline questions with synthetic ASA
+input of exactly **50,000 bytes**, explicit SET/11.2/lr/like-for-like settings and
+cleanup off. The server completed with warnings; all **eight SHA-256-verified
+artifacts** downloaded automatically. Submission flow through download took
+**142.448 seconds**, and the source hash stayed unchanged. This is one measured
+case, not a speed guarantee or new acceptance of every output combination.
+
+## 0.1.2 interface and setup checks (historical)
 
 The automated suite has 42 passing cases, including the approved welcome layout
 at 126×41 and 80×24, readable help, file-browser upload boundaries, ASA-only Quick

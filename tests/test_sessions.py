@@ -92,51 +92,6 @@ async def test_textual_guided_interaction(tmp_path):
         assert app.controller.provider is None
 
 
-@pytest.mark.asyncio
-async def test_conversion_form_requires_choices(tmp_path):
-    from netconverter_terminal.forms import ConversionForm
-    from textual.widgets import Static, Select
-
-    c = Controller(tmp_path, FakeClient())
-    app = Terminal(c)
-    caps = {
-        "targets": ["palo_alto_set", "palo_alto_panorama"],
-        "panos_versions": ["11.2"],
-        "routing_engines": ["vr", "lr"],
-        "pipeline_modes": ["like_for_like"],
-    }
-    async with app.run_test(size=(100, 45)) as pilot:
-        form = ConversionForm(caps)
-        app.push_screen(form)
-        await pilot.pause()
-        form.query_one("#submit").focus()
-        await pilot.press("enter")
-        await pilot.pause()
-        assert "Choose each" in str(form.query_one("#error", Static).render())
-        for field, value in [
-            ("target_vendor", "palo_alto_panorama"),
-            ("panos_target_version", "11.2"),
-            ("routing_engine", "lr"),
-            ("pipeline_mode", "like_for_like"),
-        ]:
-            form.query_one("#" + field, Select).value = value
-        await pilot.pause()
-        assert all(
-            form.query_one("#" + field, Select).value is not Select.NULL
-            for field in (
-                "target_vendor",
-                "panos_target_version",
-                "routing_engine",
-                "pipeline_mode",
-            )
-        )
-        await pilot.pause(0.4)
-        form.query_one("#submit").focus()
-        await pilot.press("enter")
-        await pilot.pause()
-        assert "Panorama requires" in str(form.query_one("#error", Static).render())
-
-
 def test_changing_revision_cannot_query_previous_job(tmp_path):
     (tmp_path / 'asa.cfg').write_text('synthetic config')
     api = FakeClient()
@@ -167,40 +122,3 @@ def test_query_jsonb_reordering_keeps_replay_artifacts_stable(tmp_path):
     paths = c.query('unused_objects')['saved']
     api.query = lambda *a, **k: replay.copy()
     assert c.query('unused_objects')['saved'] == paths
-
-
-@pytest.mark.asyncio
-async def test_open_convert_and_complete_download(tmp_path):
-    from textual.widgets import Button, Input, Select, Checkbox
-    from netconverter_terminal.forms import OpenForm, ConversionForm
-    (tmp_path/'fresh.cfg').write_text('synthetic config')
-    api = FakeClient()
-    captured = []
-    def submit(config, operation, options, key):
-        captured.append(options)
-        return {'job_id':'trm_'+'d'*12, 'status':'queued'}
-    api.submit = submit
-    api.capabilities = lambda: {'remaining':{'convert':3}, 'targets':['palo_alto_set'], 'panos_versions':['11.2'], 'routing_engines':['lr'], 'pipeline_modes':['like_for_like']}
-    app = Terminal(Controller(tmp_path, api))
-    async with app.run_test(size=(100,55)) as pilot:
-        await pilot.pause()
-        await pilot.click('#open_config')
-        await pilot.pause()
-        app.screen.query_one('#path',Input).value = 'fresh.cfg'
-        app.screen.query_one('#open',Button).press()
-        await pilot.pause()
-        await pilot.click('#nav_convert')
-        await pilot.pause()
-        form = app.screen
-        for key,value in [('target_vendor','palo_alto_set'),('panos_target_version','11.2'),('routing_engine','lr'),('pipeline_mode','like_for_like'),('appid','on'),('app_id_implementation','dual_stack'),('log_all_rules','on'),('add_security_profiles','on'),('implicit_deny','on')]:
-            form.query_one('#'+key,Select).value = value
-        form.query_one('#cleanup',Checkbox).value = True
-        form.query_one('#default_profile_group',Input).value = 'PILOT_PROFILE'
-        form.query_one('#submit',Button).press()
-        await pilot.pause()
-        assert captured[0]['default_profile_group'] == 'PILOT_PROFILE'
-        assert captured[0]['implicit_deny'] == 'explicit-deny-all'
-        app.action_refresh()
-        await pilot.pause(0.3)
-        assert list(tmp_path.glob('trm_*report.txt'))
-        assert (tmp_path/'fresh.cfg').read_text() == 'synthetic config'

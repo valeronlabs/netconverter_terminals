@@ -5,10 +5,11 @@
 NetConverter — by ValeronLabs LLC.
 
 A lightweight terminal client for NetConverter migration and configuration analysis.
-Open a file, choose conversion settings, track the server job, and retrieve the
+Choose an ASA file, answer inline conversion questions, track the server job, and retrieve the
 converted configuration, YAML mappings, reports, and evidence beside your source.
 The interface uses NetConverter’s dark theme and blue accents, a compact welcome
-screen, a file browser, readable job/results tables, and a persistent command prompt.
+screen, inline keyboard choices, readable job/results tables, and a persistent
+command prompt. There are no modal forms or oversized buttons.
 Use `/model` to test or repair your model connection in place. A plain command mode
 is also available.
 
@@ -16,7 +17,7 @@ is also available.
 NETCONVERTER                                     PILOT
 ASA → Palo Alto only · SET / XML / Panorama
 
-/open → Quick Convert → review your downloads
+/convert → choose an ASA file → review settings → submit
 Analyze ASA or Palo Alto configs for unused objects, routes, and traffic policy.
 ```
 
