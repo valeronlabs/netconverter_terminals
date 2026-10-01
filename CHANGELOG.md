@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.1.4 — 2026-10-01
+
+- Skip `evidence.json` and `pipeline-evidence.json` in automatic downloads and
+  `/download`. Keep converted configs, YAML, reports and TXT/XLSX evidence.
+- Existing local artifacts are not deleted. Follow-up query JSON/TXT is unchanged.
+
 ## 0.1.3 — 2026-10-01
 
 - Replace modal forms, dropdowns and oversized buttons with compact inline

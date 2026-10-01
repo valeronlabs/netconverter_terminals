@@ -152,6 +152,8 @@ class Controller:
         output = Workspace(parent)
         paths = []
         for item in self.client.artifacts(job)["artifacts"]:
+            if item["filename"] in {"evidence.json", "pipeline-evidence.json"}:
+                continue
             data = self.client.download(job, item["artifact_id"])
             if any(data.get(k) != item[k] for k in ("filename", "sha256", "bytes")):
                 raise WorkspaceError("Artifact manifest changed; retry download")
