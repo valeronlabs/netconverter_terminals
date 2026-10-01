@@ -18,12 +18,14 @@ def client():
 async def choose(app,pilot,index=0):
     app.query_one(OptionList).highlighted=index
     await pilot.press('enter')
+    await app.workers.wait_for_complete()
     await pilot.pause()
 
 
 async def enter(app,pilot,value):
     app.query_one(Input).value=value
     await pilot.press('enter')
+    await app.workers.wait_for_complete()
     await pilot.pause()
 
 
@@ -40,6 +42,7 @@ async def test_keyboard_conversion_no_buttons_or_modals(tmp_path,size):
     app=Terminal(controller)
     async with app.run_test(size=size) as pilot:
         await pilot.pause()
+        await app.workers.wait_for_complete()
         await enter(app,pilot,'/convert')
         assert len(app.screen_stack)==1
         assert not app.query(Button)
@@ -69,6 +72,7 @@ async def test_panorama_advanced_choices_are_explicit(tmp_path):
     app=Terminal(c)
     async with app.run_test(size=(100,35)) as pilot:
         await pilot.pause()
+        await app.workers.wait_for_complete()
         app.dispatch('/convert')
         await choose(app,pilot,2) # Panorama
         for _ in range(3): await choose(app,pilot)
@@ -105,6 +109,7 @@ async def test_model_retry_preserves_old_and_secret_never_echoes(tmp_path,monkey
     c=Controller(tmp_path,client(),old);app=Terminal(c)
     async with app.run_test(size=(80,24)) as pilot:
         await pilot.pause()
+        await app.workers.wait_for_complete()
         app.dispatch('/model')
         await choose(app,pilot)
         await enter(app,pilot,'test-model')
@@ -133,6 +138,7 @@ async def test_escape_and_workspace_limits(tmp_path):
     api=client();app=Terminal(Controller(tmp_path,api))
     async with app.run_test() as pilot:
         await pilot.pause()
+        await app.workers.wait_for_complete()
         app.dispatch('/convert')
         assert all('escape' not in label for label,_ in app.choice_values)
         await choose(app,pilot) # oversize
@@ -161,6 +167,7 @@ async def test_palo_source_convert_requests_asa_instead_of_dead_end(tmp_path):
     app=Terminal(c)
     async with app.run_test() as pilot:
         await pilot.pause()
+        await app.workers.wait_for_complete()
         app.dispatch('/convert')
         assert 'Choose an ASA source file' in str(app.query_one('#question').render())
         assert 'Palo Alto files can be analyzed' in history(app)
