@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.1.5 — 2026-10-01
+
+- Display server-authorized unlimited allowances as Unlimited in the status line
+  and `/allowance`. This client update does not grant or change server entitlements.
+
 ## 0.1.4 — 2026-10-01
 
 - Skip `evidence.json` and `pipeline-evidence.json` in automatic downloads and

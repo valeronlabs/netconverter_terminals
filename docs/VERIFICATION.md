@@ -1,6 +1,6 @@
 # Pilot verification status
 
-Updated for client 0.1.4, October 1, 2026.
+Updated for client 0.1.5, October 1, 2026.
 
 ## Client checks
 
@@ -10,6 +10,12 @@ workspace and byte boundaries, canary-based model-payload checks, forbidden
 operations, retry idempotency, restart/resume, revision selection, and preservation
 of originals and existing outputs. Run it using [CONTRIBUTING.md](../CONTRIBUTING.md).
 These are client tests; mock responses do not prove a live provider/model works.
+
+## 0.1.5 allowance display
+
+The 43-case client suite passes, including an unlimited server allowance rendered
+in the status line and `/allowance`. This tests the client display; production
+activation of a specific account is a separate server administration step.
 
 ## 0.1.4 artifact selection
 

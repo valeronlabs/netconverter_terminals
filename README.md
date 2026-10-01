@@ -54,6 +54,10 @@ verification limits.
 
 ## Pilot allowance
 
+An explicitly approved pilot may have a different conversion allowance. The
+terminal displays the server-authorized value, including Unlimited; installing or
+reinstalling the client does not change it. The 50,000-byte cap still applies.
+
 - **50,000 bytes** per submitted configuration (not 50,000 lines).
 - **3 conversion targets**, **20 analysis/optimization jobs**, and **100 follow-up
   queries** per account per UTC day.

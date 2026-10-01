@@ -170,7 +170,7 @@ class Terminal(App):
         text.append(literal(provider.name+' / '+provider.model if provider else 'not connected — /model to connect',MUTED if provider else '#eab308'))
         if remaining:
             text.append('\nLast known allowance  ' if self.allowance_stale else '\nRemaining today  ',style=MUTED)
-            text.append('  ·  '.join(f'{remaining[k]} {label}' for k,label in [('convert','conversions'),('analysis','analyses'),('query','queries')] if k in remaining),style=MUTED)
+            text.append('  ·  '.join(f'{"Unlimited" if remaining[k] is None else remaining[k]} {label}' for k,label in [('convert','conversions'),('analysis','analyses'),('query','queries')] if k in remaining),style=MUTED)
         self.query_one('#context',Static).update(text)
         selected=c.state.get('selected')
         metadata=c.state.get('configurations',{}).get(selected,{})
@@ -347,7 +347,7 @@ class Terminal(App):
             self.connection_error=False
             self.allowance_stale=False
             if not quiet:
-                log.write(heading('Remaining today',details_view(result['remaining'])))
+                log.write(heading('Remaining today',details_view({k: 'Unlimited' if v is None else v for k,v in result['remaining'].items()})))
         elif 'error' in result:
             self.show_error(result['error'])
         elif 'help' in result:

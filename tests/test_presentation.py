@@ -78,3 +78,17 @@ def test_long_workspace_path_stays_on_one_header_line():
     lines=console.export_text().splitlines()
     assert len(lines)==3
     assert lines[-1].endswith('…')
+
+@pytest.mark.asyncio
+async def test_unlimited_allowance_is_readable(tmp_path):
+    client=api()
+    client.capabilities.return_value={'remaining':{'convert':None,'analysis':20,'query':100}}
+    app=Terminal(Controller(tmp_path,client))
+    async with app.run_test() as pilot:
+        await app.workers.wait_for_complete()
+        await pilot.pause()
+        assert 'Unlimited conversions' in str(app.query_one('#context',Static).render())
+        app.show_result(client.capabilities.return_value)
+        await pilot.pause()
+        assert 'Unlimited' in log_text(app)
+        assert 'None' not in log_text(app)
