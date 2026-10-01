@@ -81,14 +81,14 @@ async def test_textual_guided_interaction(tmp_path):
     c = Controller(tmp_path, FakeClient())
     app = Terminal(c)
     async with app.run_test() as pilot:
-        from textual.widgets import Input, DataTable
+        from textual.widgets import Input, Static
 
         field = app.query_one(Input)
         field.value = "/allowance"
         await pilot.press("enter")
         await pilot.pause()
         assert c.allowance["remaining"]["convert"] == 3
-        assert app.query_one(DataTable).row_count == 1
+        assert "3 conversions" in str(app.query_one("#context", Static).render())
         assert app.controller.provider is None
 
 
@@ -186,10 +186,10 @@ async def test_open_convert_and_complete_download(tmp_path):
         await pilot.pause()
         await pilot.click('#open_config')
         await pilot.pause()
-        app.screen.query_one('#file',Select).value = 'fresh.cfg'
+        app.screen.query_one('#path',Input).value = 'fresh.cfg'
         app.screen.query_one('#open',Button).press()
         await pilot.pause()
-        await pilot.click('#convert')
+        await pilot.click('#nav_convert')
         await pilot.pause()
         form = app.screen
         for key,value in [('target_vendor','palo_alto_set'),('panos_target_version','11.2'),('routing_engine','lr'),('pipeline_mode','like_for_like'),('appid','on'),('app_id_implementation','dual_stack'),('log_all_rules','on'),('add_security_profiles','on'),('implicit_deny','on')]:

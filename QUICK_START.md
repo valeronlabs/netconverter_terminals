@@ -40,16 +40,16 @@ The client requires Python 3.12 or newer. uv can install the required interprete
 uv python install 3.12
 ```
 
-Download the wheel and checksums from the [v0.1.1 release](https://github.com/valeronlabs/netconverter_terminals/releases/tag/v0.1.1),
+Download the wheel and checksums from the [v0.1.2 release](https://github.com/valeronlabs/netconverter_terminals/releases/tag/v0.1.2),
 or run:
 
 ```sh
-mkdir -p ~/Downloads/netconverter-terminal-0.1.1
-cd ~/Downloads/netconverter-terminal-0.1.1
-curl --fail --location --remote-name https://github.com/valeronlabs/netconverter_terminals/releases/download/v0.1.1/netconverter_terminal-0.1.1-py3-none-any.whl
-curl --fail --location --remote-name https://github.com/valeronlabs/netconverter_terminals/releases/download/v0.1.1/SHA256SUMS
+mkdir -p ~/Downloads/netconverter-terminal-0.1.2
+cd ~/Downloads/netconverter-terminal-0.1.2
+curl --fail --location --remote-name https://github.com/valeronlabs/netconverter_terminals/releases/download/v0.1.2/netconverter_terminal-0.1.2-py3-none-any.whl
+curl --fail --location --remote-name https://github.com/valeronlabs/netconverter_terminals/releases/download/v0.1.2/SHA256SUMS
 shasum -a 256 -c SHA256SUMS
-uv tool install --python 3.12 ./netconverter_terminal-0.1.1-py3-none-any.whl
+uv tool install --python 3.12 ./netconverter_terminal-0.1.2-py3-none-any.whl
 uv tool update-shell
 ```
 
@@ -71,22 +71,22 @@ The folder you launch from is your workspace. For an initial synthetic demo:
 ```sh
 mkdir -p ~/NetConverter-Demo
 cd ~/NetConverter-Demo
-curl --fail --location --output demo-asa.cfg https://raw.githubusercontent.com/valeronlabs/netconverter_terminals/v0.1.1/examples/demo-asa.cfg
+curl --fail --location --output demo-asa.cfg https://raw.githubusercontent.com/valeronlabs/netconverter_terminals/v0.1.2/examples/demo-asa.cfg
 wc -c demo-asa.cfg
 netconverter
 ```
 
 For your own staged file, instead `cd` to the folder already containing it.
 Launching the client does not upload every file in that folder. **Selecting a file
-with Open and upload does upload that file to NetConverter.**
+with Open, Quick Convert, or Analyze only does upload that file to NetConverter.**
 
 ## 4. Complete connection setup
 
 The first run asks for:
 
 ```text
-NetConverter API URL [https://api.netconverter.ai/external/v1]:
-NetConverter API key (hidden; blank uses saved key for this server):
+Server URL [https://api.netconverter.ai/external/v1]:
+NetConverter API key (hidden; paste here, then Enter; blank uses saved key):
 Model provider: none / ollama / anthropic / openai / gemini [none]:
 ```
 
@@ -97,7 +97,9 @@ Model provider: none / ollama / anthropic / openai / gemini [none]:
    key when prompted. Ollama uses the local service at `127.0.0.1:11434` and needs
    no provider API key.
 5. A synthetic tool-call probe checks the selected model. If it fails, setup
-   continues with guided commands; you can run `netconverter setup` later.
+   explains the error and offers **retry** or **guided**. It does not silently
+   discard the failure. Inside the terminal, `/model` opens a masked-key form to
+   test and reconnect without restarting or changing the server connection.
 
 On macOS, credentials are stored in Keychain when available. Otherwise they remain
 in memory for this session and must be entered again. Non-secret connection
@@ -108,19 +110,22 @@ or screenshots. The `login` command updates only the NetConverter connection;
 
 ## 5. Submit an ASA migration
 
-Use a terminal window about 100 columns wide and 40 rows high or larger. The
+The layout adapts to 80×24; about 126 columns by 41 rows is comfortable. The
 conversion form scrolls if necessary; Tab moves between controls.
 
-1. Choose **Open config**. Select `demo-asa.cfg` and vendor `cisco_asa`, then
-   **Open and upload**. Check the selected file and byte count.
-2. Choose **Convert** or type `/convert`.
+1. Click `/open` or press **Ctrl+O**. The file browser lists names, byte sizes,
+   and modification times. Select `demo-asa.cfg` with Enter or a click, and choose
+   **Cisco ASA** as the source format. Files over 50,000 bytes are rejected.
+2. Choose **Quick Convert** to upload that file and open conversion choices.
+   **Open** uploads/selects without submitting a job; **Analyze only** uploads
+   and submits analysis. Browsing alone does not upload anything.
 3. Select the target: `palo_alto_set`, `palo_alto_xml`, or `palo_alto_panorama`.
 4. Choose your target PAN-OS version, routing engine (`vr` or `lr`), and conversion
    mode from the live server choices. For an initial synthetic demo, use
    `like_for_like` and settings appropriate to your intended target.
 5. For Panorama, enter the device group and template names.
-6. Review cleanup, App-ID, security profiles, logging, explicit deny-all, profile
-   group, and zone mapping choices. Unspecified optional overrides use the
+6. Review cleanup. Expand **Advanced settings** for App-ID, security profiles,
+   logging, explicit deny-all, profile group, and zone mappings. Unspecified optional overrides use the
    selected server mode's preset. See the [settings reference](docs/COMMANDS.md#conversion-settings).
 7. Choose **Submit conversion**. Record the `trm_…` job ID shown in the terminal.
 
@@ -145,14 +150,14 @@ The job manifest determines actual names and available files. A failed validatio
 may provide evidence without a verified converted configuration. Files are saved
 beside the source, with job-qualified names and verified hashes. Originals remain
 untouched; a conflicting existing output is not overwritten. A download failure
-can be retried with **Download** or `/download` without another conversion.
+can be retried with `/download` without another conversion.
 
 HTTPS encrypts transport. Downloaded files are ordinary local files, **not** a
 password-encrypted archive. Protect the folder according to your data policy.
 
 ## 6. Analyze and ask questions
 
-With the ASA source selected, choose **Analyze** or `/analyze`. Wait for the server
+With the ASA source selected, type `/analyze` (or choose **Analyze only** in the file browser). Wait for the server
 job to complete, then try:
 
 ```text
@@ -174,7 +179,7 @@ The model selects an operation and does not receive detailed findings.
 
 To inspect a generated target: `/resume trm_YOUR_JOB_ID`, `/target`, then
 `/analyze`. Wait for analysis before `/unused_objects` or other questions.
-To inspect an existing Palo Alto config: **Open config**, select its vendor, upload,
+To inspect an existing Palo Alto config: `/open`, select its vendor, upload,
 and analyze it. Check the selected revision before each question.
 
 ## 7. Restart and resume

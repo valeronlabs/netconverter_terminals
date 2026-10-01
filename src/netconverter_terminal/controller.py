@@ -64,6 +64,7 @@ class Controller:
         self.state["jobs"][result["job_id"]] = {
             "configuration_id": selected,
             "operation": operation,
+            "options": options or {},
             "submitted_at": self.state["pending"]["started"],
         }
         self.state["active_job"] = result["job_id"]
