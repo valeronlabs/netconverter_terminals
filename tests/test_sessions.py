@@ -1,10 +1,10 @@
 import base64
 import hashlib
 import pytest
-from netconverter_terminal.controller import Controller
-from netconverter_terminal.api import APIError
-from netconverter_terminal.workspace import WorkspaceError
-from netconverter_terminal.tui import Terminal
+from netconverter_cli.controller import Controller
+from netconverter_cli.api import APIError
+from netconverter_cli.workspace import WorkspaceError
+from netconverter_cli.tui import Terminal
 
 
 class FakeClient:
@@ -88,7 +88,11 @@ async def test_textual_guided_interaction(tmp_path):
         await pilot.press("enter")
         await pilot.pause()
         assert c.allowance["remaining"]["convert"] == 3
-        assert "3 conversions" in str(app.query_one("#context", Static).render())
+        from rich.console import Console
+        import io
+        console = Console(record=True, width=160, file=io.StringIO())
+        console.print(app.query_one("#header", Static).content)
+        assert "3 conversions" in console.export_text()
         assert app.controller.provider is None
 
 

@@ -4,8 +4,8 @@ from pathlib import Path
 
 import pytest
 
-from netconverter_terminal.workspace import Workspace, WorkspaceError
-from netconverter_terminal.privacy import model_summary, safe_prompt
+from netconverter_cli.workspace import Workspace, WorkspaceError
+from netconverter_cli.privacy import model_summary, safe_prompt
 
 
 def test_source_boundary_and_byte_limit(tmp_path):

@@ -3,6 +3,7 @@ import hashlib
 import json
 from pathlib import Path
 from .api import Client, DEFAULT_BASE
+from .backend import open_client
 from .credentials import get_secret, save_secret
 from .providers import Provider, ProviderError
 from .workspace import Workspace, WorkspaceError
@@ -18,7 +19,7 @@ def load_settings(root):
     if not p.exists():
         return {}
     data = json.loads(p.read_text())
-    if set(data) - {'server', 'provider', 'model'}:
+    if set(data) - {'server', 'provider', 'model', 'auth'} or data.get('auth') not in (None, 'key', 'clerk'):
         raise WorkspaceError('Invalid connection settings')
     return data
 
@@ -61,15 +62,63 @@ def save_model(root, provider):
     return True
 
 
-def configure(root, defaults=None, *, ask=input, secret=None):
+class AccountSignIn:
+    """The NetConverter account sign-in as first-run setup sees it (the cli's trust rules)."""
+
+    def allowed(self, server):
+        from . import cli
+        return cli.clerk_allowed(server)
+
+    def session(self):
+        from . import cli
+        return cli._clerk_session()
+
+    def login(self):
+        from .clerk import ClerkError, login
+        try:
+            login(notify=print)
+        except ClerkError as exc:
+            print(str(exc))
+            return None
+        return self.session()
+
+
+def connect_credential(server, signin, ask, secret):
+    """A stored key, the existing sign-in, or the user's choice of signing in or pasting a key."""
+    saved = get_secret(account(server), prompt=False)
+    if not saved and signin.allowed(server):
+        session = signin.session()
+        if session is not None:
+            print('Using your NetConverter sign-in.')
+            return session
+        while True:
+            choice = ask('Connect with 1 = your NetConverter account (browser sign-in), 2 = an API key [1]: ').strip() or '1'
+            if choice in ('1', '2'):
+                break
+            print('Enter 1 or 2.')
+        if choice == '1':
+            session = signin.login()
+            if session is None:
+                raise ValueError('Sign-in did not complete; run `netconverter login --clerk` and try again')
+            return session
+    key = secret('NetConverter API key (hidden; paste here, then Enter; blank uses saved key): ').strip()
+    key = key or saved
+    if not key:
+        raise ValueError('A server API key is required')
+    return key
+
+
+def configure(root, defaults=None, *, ask=None, secret=None, signin=None):
     import getpass
     from rich.console import Console
     from .branding import banner
+    ask = ask or input
     secret = secret or getpass.getpass
+    signin = signin or AccountSignIn()
     settings = {**load_settings(root), **(defaults or {})}
     Console().print(banner(Path(root).resolve()))
     print('\n1 / 2  Connect to NetConverter')
-    print('Press Enter for the production URL. Paste your key only at the next, hidden prompt.')
+    print('Press Enter for the production URL. A key, if you use one, goes only in the hidden prompt.')
     while True:
         server = ask(f"Server URL [{settings.get('server') or DEFAULT_BASE}]: ").strip() or settings.get('server') or DEFAULT_BASE
         if server.startswith(('nck_', 'sk-')):
@@ -80,19 +129,15 @@ def configure(root, defaults=None, *, ask=input, secret=None):
             break
         except ValueError:
             print('Enter an HTTPS server URL, or press Enter to accept the displayed address.')
-    key = secret('NetConverter API key (hidden; paste here, then Enter; blank uses saved key): ').strip()
-    key = key or get_secret(account(server), prompt=False)
-    if not key:
-        raise ValueError('A server API key is required')
-    client = Client(key, server)
-    try:
-        caps = client.capabilities()
-    except BaseException:
-        client.close()
-        raise
-    print(f"Connected: {caps['profile']}")
-    stored = save_secret(account(server), key)
-    print('Server key saved in OS credential store.' if stored else 'Credential store unavailable; server key is in memory for this session only.')
+    credential = connect_credential(server, signin, ask, secret)
+    client, kind = open_client(credential, server)
+    print('Connected: ' + ('full API — every supported vendor' if kind == 'external'
+                           else 'pilot key — ASA → Palo Alto'))
+    if isinstance(credential, str):
+        stored = save_secret(account(server), credential)
+        print('Server key saved in OS credential store.' if stored else 'Credential store unavailable; server key is in memory for this session only.')
+    else:
+        print('Signed in with your NetConverter account; no key is stored.')
     provider = None
     try:
         print('\n2 / 2  Connect a model (optional)')

@@ -1,224 +1,110 @@
-# First run on a Mac
+# Quick start (Mac)
 
-This guide installs the client from the public release and connects directly to
-the NetConverter service. Use synthetic configurations for initial pilot testing;
-read the [privacy and verification notes](docs/PRIVACY.md) before using sensitive data.
+Use synthetic configurations for your first run, and read the
+[privacy notes](docs/PRIVACY.md) before using real ones.
 
-## 1. Get the two connections ready
-
-**Required:** a NetConverter API key issued for the `terminal_quick` pilot profile.
-Ask your NetConverter contact for enrollment and a dedicated terminal key. A normal
-appliance/API key may not have these permissions. Keep the key private.
-
-**Optional:** a model provider and exact model ID, plus its API key if using
-Anthropic, OpenAI, or Gemini. These are separate credentials from the NetConverter
-key. A consumer chat subscription is not configured by this client. You can select
-`none` and perform the complete guided conversion without a model.
-
-For local inference, start your existing Ollama service and use an installed model
-that supports the required tool protocol. The client does not install Ollama,
-download weights, or fall back to a hosted provider. Setup tests compatibility.
-
-## 2. Install uv and the client
-
-Open **Terminal** on your Mac. If uv is already installed, check it:
+## 1. Install
 
 ```sh
-uv --version
-```
-
-If it is missing and you use Homebrew:
-
-```sh
-brew install uv
-```
-
-For other installation methods, follow the official [uv installation guide](https://docs.astral.sh/uv/getting-started/installation/).
-The client requires Python 3.12 or newer. uv can install the required interpreter:
-
-```sh
+brew install uv                      # if `uv --version` fails
 uv python install 3.12
 ```
 
-Download the wheel and checksums from the [v0.1.5 release](https://github.com/valeronlabs/netconverter_terminals/releases/tag/v0.1.5),
-or run:
+Download `netconverter_cli-0.2.2-py3-none-any.whl` and `SHA256SUMS` from the
+release page, then:
 
 ```sh
-mkdir -p ~/Downloads/netconverter-terminal-0.1.5
-cd ~/Downloads/netconverter-terminal-0.1.5
-curl --fail --location --remote-name https://github.com/valeronlabs/netconverter_terminals/releases/download/v0.1.5/netconverter_terminal-0.1.5-py3-none-any.whl
-curl --fail --location --remote-name https://github.com/valeronlabs/netconverter_terminals/releases/download/v0.1.5/SHA256SUMS
-shasum -a 256 -c SHA256SUMS
-uv tool install --python 3.12 ./netconverter_terminal-0.1.5-py3-none-any.whl
-uv tool update-shell
-```
-
-Stop if the checksum fails. The checksum detects a corrupted/mismatched download;
-this pilot does not yet provide signed installers. Open a new Terminal window if
-`netconverter` is not found, then verify:
-
-```sh
+shasum -a 256 -c SHA256SUMS          # stop if this fails
+uv tool install --python 3.12 ./netconverter_cli-0.2.2-py3-none-any.whl
+uv tool update-shell                 # then open a new Terminal window
 netconverter --help
 ```
 
-uv installs the command in an isolated tool environment; it does not require
-installing the NetConverter engine. See [uv tools](https://docs.astral.sh/uv/guides/tools/).
+Coming from 0.1.x? Run `uv tool uninstall netconverter-terminal` first. Your
+saved key, sign-in and per-folder `.netconverter/` state are kept.
 
-## 3. Open your configuration folder
-
-The folder you launch from is your workspace. For an initial synthetic demo:
+## 2. Sign in
 
 ```sh
-mkdir -p ~/NetConverter-Demo
-cd ~/NetConverter-Demo
-curl --fail --location --output demo-asa.cfg https://raw.githubusercontent.com/valeronlabs/netconverter_terminals/v0.1.5/examples/demo-asa.cfg
-wc -c demo-asa.cfg
+netconverter login --clerk           # NetConverter account in the browser (MFA, SSO)
+netconverter login --clerk --device  # same, on a machine without a browser
+netconverter login                   # or paste an API key / trial key, hidden
+netconverter whoami
+netconverter capabilities            # what your credential can convert
+```
+
+After `login --clerk`, every command and the app use your sign-in; no key and no environment
+variable are needed. A stored API key, if you also have one, is used first.
+Credentials live in the macOS Keychain (service **NetConverter Terminal**), never
+in the workspace folder. A 0.1.x Terminal Quick pilot key keeps working with its
+ASA → Palo Alto scope.
+
+## 3. Run the app in your config folder
+
+```sh
+mkdir -p ~/NetConverter-Demo && cd ~/NetConverter-Demo
+cp /path/to/examples/demo-asa.cfg .
 netconverter
 ```
 
-For your own staged file, instead `cd` to the folder already containing it.
-Launching the client does not upload every file in that folder. **Selecting a file
-and confirming its upload sends that file directly to NetConverter.**
+The folder you start in is the workspace. Nothing is uploaded when the app opens.
 
-## 4. Complete connection setup
+| Key | Does |
+| --- | --- |
+| `↑` `↓` / `1`–`9` | Move / jump to a choice |
+| `Enter` | Continue |
+| `Esc` | Cancel the open question (never a submitted job) |
+| `Ctrl+O` · `Ctrl+J` · `Ctrl+R` | Open a file · jobs · refresh the active job |
+| `F1` · `Ctrl+Q` | Help · quit |
 
-The first run asks for:
+## 4. Convert
 
-```text
-Server URL [https://api.netconverter.ai/external/v1]:
-NetConverter API key (hidden; paste here, then Enter; blank uses saved key):
-Model provider: none / ollama / anthropic / openai / gemini [none]:
-```
-
-1. Press **Enter** to use the production API URL.
-2. Paste your NetConverter terminal key at the hidden prompt. It will not echo.
-3. Check the connected profile and remaining allowance.
-4. Choose `none` for guided operation, or enter a provider, model ID, and provider
-   key when prompted. Ollama uses the local service at `127.0.0.1:11434` and needs
-   no provider API key.
-5. A synthetic tool-call probe checks the selected model. If it fails, setup
-   explains the error and offers **retry** or **guided**. It does not silently
-   discard the failure. Inside the terminal, `/model` starts hidden-key inline prompts to
-   test and reconnect without restarting or changing the server connection.
-
-On macOS, credentials are stored in Keychain when available. Otherwise they remain
-in memory for this session and must be entered again. Non-secret connection
-preferences and resume metadata live in `.netconverter/` inside this folder.
-Do not paste API keys into the conversational prompt, command arguments, issues,
-or screenshots. The `login` command updates only the NetConverter connection;
-`setup` lets you change both connections.
-
-## 5. Submit an ASA migration
-
-Use **↑/↓** to choose, **Enter** to continue, and **Esc** to cancel an inline
-choice. No mouse is needed; mouse capture is disabled so your terminal can select
-text normally. The conversation stays visible—there are no popup forms.
-
-1. Type **`/convert`**. If an ASA source is not selected, choose your ASA file
-   from the inline list. Choose **Enter a relative file path** for another filename.
-2. Confirm **Upload this file directly to NetConverter**. This explicitly treats
-   the source as **Cisco ASA**. Palo Alto output is chosen in the next step;
-   do not select Palo Alto as the source for an ASA migration.
-3. Choose **SET commands**, **PAN-OS XML**, or **Panorama**.
-4. Choose PAN-OS version, routing engine, and conversion mode from the live
-   server choices. No conversion has been submitted yet.
-5. For Panorama, enter the device group and template when prompted.
-6. Choose whether to keep existing objects or remove verified unused objects.
-7. Use the mode's server presets, or choose **Customize** to answer App-ID,
-   security profile, logging, deny-all, profile group and zone mapping questions.
-8. Review the settings printed in the conversation and choose **Submit to
-   NetConverter**. This is the point that uses one conversion allowance.
-9. Record the `trm_…` job ID. The original input and existing outputs are preserved.
-
-The layout is tested at 126×41 and 80×24. Long lists scroll with the arrow keys;
-**Ctrl+O** starts file selection, **F1** shows help, and **Ctrl+Q** exits.
-Cancelling a choice stops the current guided flow; it does not cancel an already
-submitted server job or undo an earlier upload.
-
-The terminal polls the server and displays its status. At completion it downloads
-the available artifacts automatically. Warnings and validation failures matter:
-read the reports before using an output. The client does not deploy to a firewall.
-
-For a successful conversion, outputs can include:
+1. Type `/convert` and pick the file.
+2. **What does it contain?** The likely vendor is pre-selected from a local
+   look at the file (marked *detected*); confirm or choose another.
+3. **Convert to** lists only the targets the server supports for that source.
+4. Review the card and choose **Submit to NetConverter**. This is the moment
+   the file is sent, and it uses one conversion.
+5. Follow the job in the status line. When it completes, the outputs download
+   beside the source, hash-verified:
 
 ```text
-trm_….converted.set             # or converted.xml
-trm_….mapping.yaml
-trm_….report.txt
-trm_….full-report.txt
-trm_….evidence.txt
-trm_….evidence.xlsx
+tra_….translated.txt      converted configuration
+tra_….report.json         structured verdict, findings and reasons
+tra_….evidence.xlsx       evidence workbook, when the job has one
 ```
 
-The terminal skips `evidence.json` and `pipeline-evidence.json`. It downloads
-the converted configuration, YAML, reports, and TXT/XLSX evidence when available.
-The job manifest determines actual names and available files. A failed validation
-may provide evidence without a verified converted configuration. Files are saved
-beside the source, with job-qualified names and verified hashes. Originals remain
-untouched; a conflicting existing output is not overwritten. A download failure
-can be retried with `/download` without another conversion.
+Read warnings before using an output. `NEEDS REVIEW` and `BLOCKED` are set by
+deterministic checks, not by AI.
 
-HTTPS encrypts transport. Downloaded files are ordinary local files, **not** a
-password-encrypted archive. Protect the folder according to your data policy.
+## 5. Validate, optimize, ask
 
-## 6. Analyze and ask questions
+- `/validate` and `/optimize` follow the same file → vendor → review steps.
+- After a job completes: `/nat`, `/policy`, `/routes`, `/interfaces`,
+  `/unused_objects`, and structured questions such as
+  `/flow {"source_ip":"192.0.2.10","destination_ip":"198.51.100.10","protocol":"tcp","destination_port":80}`.
+  Results are saved as JSON and TXT beside the source.
+- `/target` saves the generated configuration and selects it, so you can `/validate` it.
 
-With the ASA source selected, type `/analyze`. With no source selected, `/analyze`
-first guides you through choosing the file, its source format, and upload confirmation. Wait for the server
-job to complete, then try:
-
-```text
-/unused_objects
-/routes
-/policy
-/flow {"source_ip":"192.0.2.10","destination_ip":"198.51.100.10","protocol":"tcp","destination_port":80}
-/flow {"source_ip":"192.0.2.10","destination_ip":"198.51.100.10","protocol":"tcp","destination_port":81}
-```
-
-The sample ASA includes an explicit TCP-80 permit and an unused object. Treat the
-returned coverage and unsupported cases as part of the answer. This is
-configuration analysis, not a live firewall or packet-path test.
-
-With a compatible model connected, you can instead type `Find unused objects` or
-`Show routing recommendations`. For sensitive parameters, the terminal requests
-structured input such as `/flow`; those values go directly to NetConverter.
-The model selects an operation and does not receive detailed findings.
-
-To inspect a generated target: `/resume trm_YOUR_JOB_ID`, `/target`, then
-`/analyze`. Wait for analysis before `/unused_objects` or other questions.
-To inspect an existing Palo Alto config: `/open`, choose its actual source format, confirm upload,
-and analyze it. Check the selected revision before each question.
-
-## 7. Restart and resume
-
-Press **Ctrl+Q** to leave the terminal. Return to the same folder and run
-`netconverter` again. Resume an earlier job with `/resume JOB_ID`, or inspect
-`/jobs`. A network interruption can leave a submission pending; `/resume` retries
-that submission with the saved idempotency key.
-
-Do not delete `.netconverter/` while recovering an interrupted submission.
-In plain CLI mode, `netconverter resume JOB_ID` fetches status once; use
-`netconverter download` after completion. The TUI handles polling and automatic
-completion downloads.
-
-## 8. Update or uninstall
-
-To update, download and verify the new wheel, then run `uv tool install --force`
-with that wheel path. Read its release notes first.
-
-To remove the executable:
+## 6. Connect your AI assistant
 
 ```sh
-uv tool uninstall netconverter-terminal
+netconverter connect                 # which assistants are already connected
+netconverter connect claude-code     # shows the change, asks, then applies
 ```
 
-This preserves configs, outputs, Keychain credentials, and per-folder state.
-For a fresh onboarding reset, close the client, remove only this application's
-entries under service **NetConverter Terminal** in Keychain Access, and remove
-`.netconverter/` from the relevant workspace after you have finished recovery.
-Do not delete the source configurations or downloaded evidence. Ask NetConverter
-to revoke a server key if you no longer need its access; deleting a local copy
-alone does not revoke it. This client never requires uninstalling Ollama or other
-tools to reset its own setup.
+Or `/connect` inside the app. Then ask your assistant to validate or convert a file
+by name. `/activity` shows each call the bridge handled: time, assistant, file,
+size, SHA-256 and job ID — never content.
 
-See [troubleshooting](docs/COMMANDS.md#troubleshooting) if any step fails.
+## 7. Resume, update, uninstall
+
+- Quit with `Ctrl+Q`; run `netconverter` in the same folder to continue.
+  `/jobs` lists your jobs; `/resume JOB_ID` follows one. An interrupted submit is
+  retried by `/resume` with the same idempotency key, so it is not duplicated.
+- Update: verify the new wheel, then `uv tool install --force ./netconverter_cli-….whl`.
+- Remove: `uv tool uninstall netconverter-cli`. Configs, outputs, Keychain entries
+  and `.netconverter/` folders stay until you delete them; `netconverter logout --all`
+  removes the saved sign-in and key.
+
+Something failed? See [troubleshooting](docs/COMMANDS.md#troubleshooting).

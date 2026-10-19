@@ -2,9 +2,9 @@ import hashlib
 from unittest.mock import Mock
 import pytest
 from textual.widgets import Input,OptionList,RichLog,Button
-from netconverter_terminal.controller import Controller
-from netconverter_terminal.tui import Terminal
-from netconverter_terminal.providers import ProviderError
+from netconverter_cli.controller import Controller
+from netconverter_cli.tui import Terminal
+from netconverter_cli.providers import ProviderError
 
 
 def client():
@@ -46,17 +46,17 @@ async def test_keyboard_conversion_no_buttons_or_modals(tmp_path,size):
         await enter(app,pilot,'/convert')
         assert len(app.screen_stack)==1
         assert not app.query(Button)
-        assert 'ASA source file' in str(app.query_one('#question').render())
+        assert app.question=='Convert which file?'
         assert app.query_one(OptionList).region.bottom <= size[1]-2
         await choose(app,pilot) # source
         api.upload.assert_not_called()
         await choose(app,pilot) # upload confirmed as ASA
         api.upload.assert_called_once_with(b'synthetic config','cisco_asa')
-        assert 'Palo Alto output' in str(app.query_one('#question').render())
+        assert app.question=='Convert Cisco ASA to'
         for _ in range(6): # SET, PANOS, router, mode, keep objects, presets
             await choose(app,pilot)
         api.submit.assert_not_called()
-        assert 'Submit this conversion' in str(app.query_one('#question').render())
+        assert app.question == 'Submit this job?'
         await choose(app,pilot)
         api.submit.assert_called_once()
         assert api.submit.call_args.args[2]=={'target_vendor':'palo_alto_set','panos_target_version':'11.2','routing_engine':'lr','pipeline_mode':'like_for_like','remove_unused_objects':False}
@@ -74,6 +74,7 @@ async def test_panorama_advanced_choices_are_explicit(tmp_path):
         await pilot.pause()
         await app.workers.wait_for_complete()
         app.dispatch('/convert')
+        await choose(app,pilot) # use the selected ASA configuration
         await choose(app,pilot,2) # Panorama
         for _ in range(3): await choose(app,pilot)
         await enter(app,pilot,'')
@@ -101,7 +102,7 @@ async def test_panorama_advanced_choices_are_explicit(tmp_path):
 
 @pytest.mark.asyncio
 async def test_model_retry_preserves_old_and_secret_never_echoes(tmp_path,monkeypatch):
-    from netconverter_terminal import setup
+    from netconverter_cli import setup
     old=Mock(name='old');old.name='ollama';old.model='local-model'
     new=Mock(name='new');new.name='openai';new.model='test-model'
     monkeypatch.setattr(setup,'connect_model',Mock(side_effect=[ProviderError('authentication'),new]))
@@ -169,6 +170,6 @@ async def test_palo_source_convert_requests_asa_instead_of_dead_end(tmp_path):
         await pilot.pause()
         await app.workers.wait_for_complete()
         app.dispatch('/convert')
-        assert 'Choose an ASA source file' in str(app.query_one('#question').render())
-        assert 'Palo Alto files can be analyzed' in history(app)
+        assert app.question=='Convert which file?'
+        assert 'not a convert source' in history(app)
         c.client.submit.assert_not_called()

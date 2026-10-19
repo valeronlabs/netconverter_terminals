@@ -1,84 +1,96 @@
-# NetConverter Terminal
+# NetConverter CLI
 
-**ASA → Palo Alto SET, XML, and Panorama, from the folder containing your configuration.**
+**Migrate, validate and optimize network configurations from the folder that holds them — and let your own AI assistant do it too, without the configuration ever passing through the model.**
 
 NetConverter — by ValeronLabs LLC.
 
-A lightweight terminal client for NetConverter migration and configuration analysis.
-Choose an ASA file, answer inline conversion questions, track the server job, and retrieve the
-converted configuration, YAML mappings, reports, and evidence beside your source.
-The interface uses NetConverter’s dark theme and blue accents, a compact welcome
-screen, inline keyboard choices, readable job/results tables, and a persistent
-command prompt. There are no modal forms or oversized buttons.
-Use `/model` to test or repair your model connection in place. A plain command mode
-is also available.
-
 ```text
-NETCONVERTER                                     PILOT
-ASA → Palo Alto only · SET / XML / Panorama
-
-/convert → choose an ASA file → review settings → submit
-Analyze ASA or Palo Alto configs for unused objects, routes, and traffic policy.
+◆ NetConverter  v0.2.0                      ● Server   ◆ Bridge claude-code · 2m ago
+▍ Start
+▍ /convert    Migrate a configuration to another vendor
+▍ /validate   Check a configuration before migrating
+▍ /optimize   Cleanup and optimization findings
+▍ /activity   What your AI assistant did here
+╭ What does edge-fw.conf contain? ───────────────────────────────╮
+│ ▸  1  Fortinet FortiGate  · detected                            │
+│    2  Cisco ASA                                                 │
+╰──────────────────────────────── ↑↓ choose · 1–9 jump · Enter ───╯
 ```
+
+One small client, three ways in:
+
+| | What it is |
+| --- | --- |
+| `netconverter` | A keyboard-first full-screen app: pick a file, answer a few inline questions, follow the job, get verified outputs beside your source. |
+| `netconverter mcp` | A local MCP bridge for Claude Code, Claude Desktop, Cursor, VS Code and Codex. Your AI passes a **file path**; the bridge reads the file and uploads it straight to NetConverter. The AI sees paths, job IDs and summaries — never the configuration. |
+| `netconverter validate edge.cfg --vendor fortinet` | Plain one-shot commands that print JSON, for scripts and CI. |
+
+## What it supports
+
+Whatever the NetConverter server you sign in to supports — the client reads
+`GET /capabilities` and builds every menu from it, so new vendors appear
+without a client update. Today that is:
+
+- **Firewalls:** Palo Alto (SET, XML, Panorama), Fortinet FortiGate, Cisco FMC (JSON);
+  Cisco ASA as a source. Check Point is a source through a handoff bundle in the portal.
+- **Routers and switches:** Cisco IOS-XE, Juniper JunOS (braces and set), Aruba CX;
+  ArubaOS as a source.
+- **Jobs:** convert, validate, optimize; follow-up questions on NAT, policy, routes,
+  interfaces, unused objects, object dependencies and traffic flows.
+
+Run `netconverter capabilities` to see exactly what your credential can do.
+A 0.1.x **Terminal Quick pilot key** still works and keeps its ASA → Palo Alto
+scope; the app labels it as such.
 
 ## Start here
 
-1. Obtain a **terminal pilot API key** from your NetConverter contact. Enrollment
-   is currently assisted; downloading the client does not provision an account.
-2. Follow the [Mac quick start](QUICK_START.md) to install the client and run
-   `netconverter` in your configuration folder.
-3. Accept the production API address `https://api.netconverter.ai/external/v1`,
-   enter your key in the hidden prompt, and optionally connect a model.
-4. Start with the included [synthetic ASA example](examples/demo-asa.cfg).
+```sh
+# 1. Install (Python 3.12+ via uv)
+uv tool install --python 3.12 ./netconverter_cli-0.2.2-py3-none-any.whl
 
-You do not need a local NetConverter server, Docker, AWS access, or a GitHub account
-to use a published wheel. This repository contains the **client only**; the
-conversion engine and hosted service are separate.
+# 2. Sign in once
+netconverter login --clerk          # your NetConverter account, in the browser
+#    or: netconverter login          # paste an API key at a hidden prompt
 
-## What it does
+# 3. Work in the folder that holds your configs
+cd ~/migrations && netconverter
+```
 
-| Workflow | Available behavior |
-| --- | --- |
-| Migration | ASA to Palo Alto SET, XML, or Panorama, with server-validated settings |
-| Configuration analysis | ASA and supported Palo Alto inputs; unused objects, dependencies, interfaces, routes, NAT, and policy findings |
-| Traffic questions | Explicit flow parameters and the server's supported policy analysis, with coverage limits |
-| Optimization | Recommendations and evidence; report-only results do not claim to rewrite your configuration |
-| Cleanup during migration | Optional unused-object removal through the validated conversion pipeline |
-| Jobs and artifacts | Visible `trm_` conversion IDs, server status, restart/resume, SHA-256-verified downloads |
-| Optional models | Anthropic, OpenAI, Gemini, or local Ollama; guided commands work without a model |
+Upgrading from `netconverter-terminal` 0.1.x: `uv tool uninstall netconverter-terminal`
+first. Saved keys and sign-ins carry over (Keychain service **NetConverter Terminal**).
 
-The model selects a permitted operation. It does not run a shell, read arbitrary
-files, generate conversion settings, or receive detailed configuration results.
-See [privacy and data flow](docs/PRIVACY.md) for the precise boundary and current
-verification limits.
+Full walkthrough: [Quick start](QUICK_START.md).
 
-## Pilot allowance
+## Use it from your AI
 
-An explicitly approved pilot may have a different conversion allowance. The
-terminal displays the server-authorized value, including Unlimited; installing or
-reinstalling the client does not change it. The 50,000-byte cap still applies.
+```sh
+netconverter connect claude-code    # or cursor, vscode, codex
+```
 
-- **50,000 bytes** per submitted configuration (not 50,000 lines).
-- **3 conversion targets**, **20 analysis/optimization jobs**, and **100 follow-up
-  queries** per account per UTC day.
-- **One active job** per account.
-- Polling and artifact downloads do not consume another job allowance.
+`connect` shows the exact change it will make and asks before applying it
+(Claude Code through its own `claude mcp add`; JSON files keep a `.bak`).
+Then ask your assistant, for example: *"Validate edge-fw.conf and tell me what it finds,"*
+*"Convert it to Palo Alto XML,"* *"Can WEB reach DB on tcp/1433?"*
 
-Each output target counts separately. The server's capabilities and allowance
-responses are authoritative. Larger migrations require an arrangement with
-NetConverter. Runtime depends on content, settings, and server load; there is no
-five-minute guarantee.
+Inside the app, `/activity` and the header's **Bridge** pill show what your AI did
+through the bridge — paths, sizes, SHA-256 and job IDs only.
+
+## Boundaries
+
+- Configurations travel only from your workspace to NetConverter, over HTTPS.
+  The bridge never returns configuration text to the AI; the server tokenizes
+  addresses and removes credentials from every summary.
+- The client never pushes to a device. Outputs are files you review and load.
+- Downloads are hash-verified and never overwrite a file you changed.
+- An optional in-app model (`/model`: Anthropic, OpenAI, Gemini or local Ollama)
+  only chooses among fixed operations; it never receives configurations or results.
 
 ## Documentation
 
-- [Install, connect, and run your first conversion](QUICK_START.md)
-- [Commands, conversion settings, and troubleshooting](docs/COMMANDS.md)
-- [Privacy, credentials, encryption, and local files](docs/PRIVACY.md)
-- [What has been tested and what remains open](docs/VERIFICATION.md)
-- [Development and contributing](CONTRIBUTING.md)
-- [Security reporting](SECURITY.md)
-- [Release notes](CHANGELOG.md)
+- [Quick start](QUICK_START.md) · [Commands and troubleshooting](docs/COMMANDS.md)
+- [Privacy and data flow](docs/PRIVACY.md) · [Verification status](docs/VERIFICATION.md)
+- [Changelog](CHANGELOG.md) · [Contributing](CONTRIBUTING.md) · [Security](SECURITY.md)
 
-This is a **public pilot client**. macOS is the exercised customer platform;
-Windows acceptance remains pending. The client is [MIT licensed](LICENSE).
-The license does not grant access to the hosted service or license the server code.
+The client is [MIT licensed](LICENSE). The license does not grant access to the
+hosted service or license the server code. macOS is the exercised platform;
+Windows acceptance remains pending.

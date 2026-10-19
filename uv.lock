@@ -1,5 +1,5 @@
 version = 1
-revision = 3
+revision = 5
 requires-python = ">=3.12"
 
 [[package]]
@@ -337,8 +337,8 @@ wheels = [
 ]
 
 [[package]]
-name = "netconverter-terminal"
-version = "0.1.5"
+name = "netconverter-cli"
+version = "0.2.2"
 source = { editable = "." }
 dependencies = [
     { name = "httpx" },

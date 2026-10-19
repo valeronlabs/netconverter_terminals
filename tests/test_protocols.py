@@ -1,8 +1,8 @@
 import json
 import httpx
 import pytest
-from netconverter_terminal.providers import Provider, ProviderError
-from netconverter_terminal.api import Client, APIError
+from netconverter_cli.providers import Provider, ProviderError
+from netconverter_cli.api import Client, APIError
 
 MARKER = "SYNTHETIC_SECRET_OBJECT_92"
 

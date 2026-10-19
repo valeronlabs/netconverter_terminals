@@ -8,7 +8,13 @@ Selected config + explicit parameters ── HTTPS ──> NetConverter service
 
 Allowlisted operation intent ──> Optional selected model provider
                              <── One permitted operation
+
+Your AI assistant ── file path ──> netconverter mcp (on this machine) ── HTTPS ──> NetConverter
+                  <── job id, sha256, byte count, summaries ──
 ```
+
+With the full API, choosing a file only pins it by SHA-256; the file is sent when
+you choose **Submit** (a pilot key uploads at selection, after its own confirmation).
 
 Selecting a file uploads its full contents directly to NetConverter. This is a
 hosted conversion service, not an offline engine. Raw configurations, generated
@@ -43,7 +49,8 @@ mismatches; it does not replace trust in the server producing the artifacts.
 
 The supported OS credential store holds API keys when available; the client
 refuses plaintext keyring backends. Otherwise keys are entered for the session
-and held in memory. On macOS, the Keychain service is `NetConverter Terminal`.
+and held in memory. On macOS, the Keychain service is `NetConverter Terminal` (kept under that name
+since 0.1.x so saved credentials survive the rename to NetConverter CLI).
 Server accounts are scoped to the server URL; model accounts are provider names.
 Credentials are never written into `.netconverter/`.
 
@@ -52,6 +59,10 @@ hashes, job handles, and retry metadata. Some structured conversion decisions ca
 also appear in pending-request metadata. These records and downloaded findings
 may still be sensitive. Keep the folder private and out of public repositories.
 The client does not persist a free-text prompt transcript or provider responses.
+The local MCP bridge appends one metadata line per tool call to
+`.netconverter/bridge.jsonl` (time, assistant name, tool, relative path, SHA-256,
+byte count, job id, vendors, status) so the app can show `/activity`. It never
+records configuration text, tool results or credentials, and keeps the newest 500 lines.
 
 Production uses HTTPS with certificate verification. The client rejects plain
 HTTP except explicit loopback addresses for development, ignores environment
@@ -63,9 +74,10 @@ Use your OS storage protection and organization policy for files at rest.
 
 Automated client tests exercise synthetic canaries, provider payload abstraction,
 forbidden operations, workspace escape attempts, output preservation, and
-interrupted sessions. Server access uses a restricted tenant-scoped terminal
-profile; its key cannot access the ordinary API catalog. Pilot enrollment keeps
-full-fidelity server AI opt-in disabled.
+interrupted sessions. Every request is tenant-scoped by the credential. A 0.1.x
+Terminal Quick key reaches only its restricted pilot profile; full-API keys and
+Clerk sign-ins reach the External API (`/jobs`, `/capabilities`) and, for questions,
+the read-only NetConverter MCP tools. Full-fidelity server AI stays opt-in per tenant.
 
 **The complete audit of backend AI-provider payloads remains open.** Client tests
 and clean diagnostic-log checks do not establish that every downstream server
@@ -74,4 +86,4 @@ pilot testing and obtain the relevant backend privacy acceptance before uploadin
 sensitive customer configurations. See [verification status](VERIFICATION.md).
 
 No client can prevent a user from separately pasting a configuration into another
-AI application. This document describes this terminal's implemented boundary.
+AI application. This document describes this client's implemented boundary.

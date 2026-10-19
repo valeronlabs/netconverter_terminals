@@ -3,8 +3,8 @@
 import json
 import shlex
 
-HELP = """/open "file.cfg" cisco_asa|palo_alto_set|palo_alto_xml|palo_alto_panorama
-/analyze   /optimize   /convert {"target_vendor":"palo_alto_set","panos_target_version":"11.2","routing_engine":"lr","pipeline_mode":"like_for_like"}
+HELP = """/open "file.cfg" VENDOR_CODE        (vendor codes: netconverter --json capabilities)
+/convert {"target_vendor":"palo_alto_xml"}   /validate   /optimize
 /jobs   /resume [job_id]   /status   /target   /download   /allowance
 /unused_objects   /routes   /interfaces   /policy   /nat
 /dependencies {"object_name":"NAME"}
@@ -32,7 +32,7 @@ def execute(controller, text):
         if len(parts) != 2:
             raise ValueError('Use /open "filename" vendor')
         return controller.select(*parts)
-    if command in {"analyze", "optimize", "convert"}:
+    if command in {"analyze", "validate", "optimize", "convert"}:
         options = json.loads(rest) if rest else {}
         if not isinstance(options, dict):
             raise ValueError("Options must be a JSON object")
