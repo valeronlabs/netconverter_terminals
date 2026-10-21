@@ -172,10 +172,24 @@ def read_deny_rule(root: Path) -> str:
     return f"Read({path.rstrip('/')}/**)"
 
 
+def _too_broad_for_deny(root: Path) -> bool:
+    """A deny rule on the home folder (or anything containing it, or a filesystem root)
+    would stop Claude Code reading every project; it is only offered for a dedicated folder."""
+    root = Path(root).resolve()
+    home = Path.home().resolve()
+    return root == home or home.is_relative_to(root) or root.parent == root
+
+
 def plan_claude_read_deny(root: Path) -> Change:
     path = _claude_settings_path()
     rule = read_deny_rule(root)
     title, where = "Claude Code read rule", str(path)
+    if _too_broad_for_deny(root):
+        return Change("claude-code-deny", title, where,
+                      f"Skipped: {root} is your home folder (or contains it), and a read rule there "
+                      "would stop Claude Code reading every project. Use a dedicated folder for "
+                      "configurations, e.g. `netconverter --workspace ~/migrations connect claude-code`.",
+                      rule, can_apply=False, manual="Nothing was changed.")
     data = _read_json(path)
     permissions = data.get("permissions", {}) if isinstance(data, dict) else None
     deny = permissions.get("deny", []) if isinstance(permissions, dict) else None

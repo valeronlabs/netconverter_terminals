@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.3.2 — 2026-10-21
+
+- **Safer Claude Code read rule.** `connect claude-code` no longer offers the
+  `Read(//<folder>/**)` deny rule when the workspace is your home folder (or contains
+  it): there it would stop Claude Code reading every project. Use a dedicated folder
+  such as `~/migrations`.
+- **`connect --all` skips optional extras** such as that rule; run
+  `netconverter connect claude-code` on its own to review it.
+- **Getting access guide** for new users and administrators: `docs/connect/getting-access.md`.
+
 ## 0.3.1 — 2026-10-21
 
 - **More assistants.** `netconverter connect gemini` (Gemini CLI), `windsurf` and

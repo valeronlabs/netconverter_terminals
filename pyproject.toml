@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "netconverter-cli"
-version = "0.3.1"
+version = "0.3.2"
 description = "NetConverter CLI — any-vendor network configuration migration, validation and optimization, and a local MCP bridge for your AI assistant"
 readme = "README.md"
 license = "MIT"

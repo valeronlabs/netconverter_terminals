@@ -85,3 +85,24 @@ def test_all_connects_only_installed_local_clients(home, capsys):
     assert not (home_dir / ".codeium").exists() and not (home_dir / ".cursor" / "mcp.json").exists()
     cli.run_connect(_args(work, all=True))
     assert "already connected" in capsys.readouterr().out
+
+
+def test_read_deny_never_offered_for_home_or_above(home):
+    home_dir, work = home
+    for root in (home_dir, home_dir.parent, Path("/")):
+        change = connect.plan_claude_read_deny(root)
+        assert not change.can_apply and "Skipped" in change.summary
+    assert connect.plan_claude_read_deny(work).can_apply  # a dedicated folder still gets it
+
+
+def test_all_never_applies_optional_followups(home, monkeypatch):
+    home_dir, work = home
+    applied = []
+    fake = connect.Change("claude-code", "Claude Code", "x", "s", "p", apply=lambda: "ok",
+                          followups=[connect.Change("claude-code-deny", "rule", "y", "s", "p",
+                                                    apply=lambda: applied.append(1) or "done")])
+    monkeypatch.setattr(connect, "plan", lambda key, root: fake)
+    monkeypatch.setattr(connect, "installed_local_clients", lambda: ["claude-code"])
+    monkeypatch.setattr(connect, "configured_clients", lambda root=None: [])
+    cli.run_connect(_args(work, all=True))
+    assert applied == []

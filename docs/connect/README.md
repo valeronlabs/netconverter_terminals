@@ -12,6 +12,7 @@ Both need a NetConverter account with **MCP access enabled** by your administrat
 
 ## Guides
 
+- **[Getting access](getting-access.md)** — new users and administrators start here
 - [claude.ai, Claude Desktop chat and the Claude mobile app](claude-ai.md) — remote connector
 - [ChatGPT](chatgpt.md) — remote connector
 - [Claude Desktop](claude-desktop.md) — terminal bridge

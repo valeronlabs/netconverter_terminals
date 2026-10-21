@@ -205,7 +205,8 @@ def run_connect(args, ask=input):
         failed = 0
         for key in targets:
             try:
-                _connect_one(argparse.Namespace(**{**vars(args), "client": key, "all": False}), root, ask)
+                _connect_one(argparse.Namespace(**{**vars(args), "client": key, "all": False, "batch": True}),
+                             root, ask)
             except SystemExit as exc:
                 failed += 1 if exc.code else 0
             print()
@@ -256,6 +257,9 @@ def _connect_one(args, root, ask):
         print(f"\n{extra.title}: {extra.summary}\n\n{extra.preview}\n")
         if not extra.can_apply:
             print(extra.manual)
+            continue
+        if getattr(args, "batch", False):  # connect --all: optional extras need their own run
+            print(f"Skipped in --all; run `netconverter connect {args.client}` to review it.")
             continue
         if not args.yes:
             hint = "[Y/n]" if extra.default_yes else "[y/N]"
