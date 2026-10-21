@@ -347,8 +347,9 @@ class Guided:
         from .presentation import card, literal
         from .palette import MUTED
         from rich.console import Group
-        self.app.write(card(f'Connect {change.title}', Group(literal(change.summary),
-                                                             literal(change.preview, MUTED))))
+        from .connect import CLIENTS
+        heading = f'Connect {change.title}' if change.key in CLIENTS else change.title
+        self.app.write(card(heading, Group(literal(change.summary), literal(change.preview, MUTED))))
         if not change.can_apply:
             self.app.write_note(change.manual)
             return

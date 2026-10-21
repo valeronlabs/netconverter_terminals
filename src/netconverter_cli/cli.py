@@ -192,24 +192,26 @@ def remote_for(server, credential):
     return RemoteMCP(url, credential, client_version=__version__)
 
 
-def run_connect(args):
+def run_connect(args, ask=input):
     from .connect import CLIENTS, configured_clients, plan
 
     root = Path(args.workspace).resolve()
     if not args.client:
         done = configured_clients(root)
         for key, spec in CLIENTS.items():
-            print(f"  {'●' if spec.title in done else '○'} {key:<12} {spec.title}")
+            print(f"  {'●' if spec.title in done else '○'} {key:<14} {spec.title}")
         print("\nnetconverter connect <client>   shows the change, then asks before applying it")
         return
     change = plan(args.client, root)
     print(f"{change.title}: {change.summary}\n\n{change.preview}\n")
     if args.print_only:
+        for extra in change.followups:
+            print(f"{extra.title} (offered after applying): {extra.summary}\n\n{extra.preview}\n")
         return
     if not change.can_apply:
         print(change.manual)
         raise SystemExit(1)
-    if not args.yes and input(f"Apply to {change.where}? [y/N] ").strip().lower() not in {"y", "yes"}:
+    if not args.yes and ask(f"Apply to {change.where}? [y/N] ").strip().lower() not in {"y", "yes"}:
         print("Nothing was changed.")
         return
     try:
@@ -217,6 +219,22 @@ def run_connect(args):
     except Exception as exc:
         print(f"Could not apply: {exc}", file=sys.stderr)
         raise SystemExit(1) from None
+    for extra in change.followups:
+        print(f"\n{extra.title}: {extra.summary}\n\n{extra.preview}\n")
+        if not extra.can_apply:
+            print(extra.manual)
+            continue
+        if not args.yes:
+            hint = "[Y/n]" if extra.default_yes else "[y/N]"
+            answer = ask(f"Apply to {extra.where}? {hint} ").strip().lower()
+            if answer not in {"y", "yes"} and not (extra.default_yes and answer == ""):
+                print("Skipped; nothing else was changed.")
+                continue
+        try:
+            print(extra.apply())
+        except Exception as exc:
+            print(f"Could not apply: {exc}", file=sys.stderr)
+            raise SystemExit(1) from None
 
 
 # Account commands work from anywhere; everything else works on a workspace folder.
@@ -270,8 +288,9 @@ def parser():
     mcp.add_argument("--strict", action="store_true", default=os.getenv("NETCONVERTER_MCP_STRICT") == "1",
                      help="proxy only the strict-view remote tools (summaries, names as tokens)")
     mcp.add_argument("--workspace", default=argparse.SUPPRESS, help="folder the file tools may read and write")
-    connect = subs.add_parser("connect", help="wire an AI assistant (claude-code, cursor, vscode, codex) to this folder")
-    connect.add_argument("client", nargs="?", choices=["claude-code", "cursor", "vscode", "codex"])
+    connect = subs.add_parser(
+        "connect", help="wire an AI assistant (claude-code, claude-desktop, cursor, vscode, codex) to this folder")
+    connect.add_argument("client", nargs="?", choices=["claude-code", "claude-desktop", "cursor", "vscode", "codex"])
     connect.add_argument("--print", action="store_true", dest="print_only", help="show the change without applying it")
     connect.add_argument("--yes", action="store_true", help="apply without asking (scripts)")
     update = subs.add_parser("update", help="install the latest verified release from GitHub")

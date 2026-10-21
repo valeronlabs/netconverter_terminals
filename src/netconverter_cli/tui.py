@@ -389,7 +389,11 @@ class Terminal(App):
         except Exception as exc:
             self.show_error(f'Could not apply: {str(exc)[:300]}')
             return
-        self.write(card(f'{change.title} connected', literal(message), 'success'))
+        from .connect import CLIENTS
+        done = 'connected' if change.key in CLIENTS else 'applied'
+        self.write(card(f'{change.title} {done}', literal(message), 'success'))
+        for extra in change.followups:  # e.g. the Claude Code read rule, offered with its own prompt
+            self.guided.connect_review(extra)
 
     def model_selected(self, result):
         if result is None:  # Cancel returns None; disabling is an explicit tuple.
