@@ -4,13 +4,31 @@ build-backend = "hatchling.build"
 
 [project]
 name = "netconverter-cli"
-version = "0.3.2"
+version = "0.4.0"
 description = "NetConverter CLI — any-vendor network configuration migration, validation and optimization, and a local MCP bridge for your AI assistant"
 readme = "README.md"
 license = "MIT"
 license-files = ["LICENSE"]
-authors = [{name = "ValeronLabs LLC"}]
+authors = [{name = "ValeronLabs LLC", email = "contact@netconverter.ai"}]
 requires-python = ">=3.12"
+keywords = ["mcp", "model-context-protocol", "network-automation", "firewall", "migration",
+            "palo-alto", "cisco", "fortinet", "check-point", "netconverter"]
+classifiers = [
+  "Development Status :: 4 - Beta",
+  "Environment :: Console",
+  "Intended Audience :: System Administrators",
+  "Intended Audience :: Telecommunications Industry",
+  "Operating System :: MacOS",
+  "Operating System :: Microsoft :: Windows",
+  "Operating System :: POSIX :: Linux",
+  "Programming Language :: Python :: 3",
+  "Programming Language :: Python :: 3 :: Only",
+  "Programming Language :: Python :: 3.12",
+  "Programming Language :: Python :: 3.13",
+  "Topic :: System :: Networking",
+  "Topic :: System :: Networking :: Firewalls",
+  "Topic :: Utilities",
+]
 dependencies = ["httpx==0.28.1", "textual==8.2.8", "keyring==25.7.0", "pydantic==2.13.5"]
 
 [project.urls]
@@ -18,12 +36,17 @@ Homepage = "https://netconverter.ai"
 Repository = "https://github.com/valeronlabs/netconverter_terminals"
 Documentation = "https://github.com/valeronlabs/netconverter_terminals/blob/main/QUICK_START.md"
 Issues = "https://github.com/valeronlabs/netconverter_terminals/issues"
+Changelog = "https://github.com/valeronlabs/netconverter_terminals/blob/main/CHANGELOG.md"
 
 [project.scripts]
 netconverter = "netconverter_cli.cli:main"
 
 [dependency-groups]
 dev = ["pytest>=8", "pytest-asyncio>=0.25", "build>=1"]
+
+[tool.hatch.build.targets.sdist]
+include = ["src/netconverter_cli", "tests", "docs", "README.md", "CHANGELOG.md", "LICENSE",
+           "SECURITY.md", "QUICK_START.md"]
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/netconverter_cli"]

@@ -189,3 +189,43 @@ def test_status_for_account_tool(monkeypatch):
     monkeypatch.delenv("NETCONVERTER_NO_UPDATE_CHECK")
     assert update.status(transport=httpx.MockTransport(GitHub())) == {
         "latest": "9.8.7", "update_available": True}
+
+
+def receipt(folder, requirement):
+    folder.mkdir()
+    (folder / "uv-receipt.toml").write_text(f"[tool]\nrequirements = [{requirement}]\n")
+    return folder
+
+
+def test_pypi_install_is_detected_from_the_uv_receipt(tmp_path):
+    index = receipt(tmp_path / "index", '{ name = "netconverter-cli" }')
+    wheel = receipt(tmp_path / "wheel", '{ name = "netconverter-cli", path = "/tmp/x.whl" }')
+    assert update.from_pypi(index, direct_url=lambda: False)
+    assert not update.from_pypi(index, direct_url=lambda: True)  # dist metadata says file/URL install
+    assert not update.from_pypi(wheel, direct_url=lambda: False)
+    assert not update.from_pypi(tmp_path / "none", direct_url=lambda: False)  # pip/venv, no receipt
+
+
+def test_pypi_install_runs_uv_tool_upgrade(capsys):
+    calls = []
+    github = GitHub()
+    code = update.run(args(yes=True), transport=httpx.MockTransport(github), which=lambda name: "/opt/bin/uv",
+                      runner=lambda argv: calls.append(argv) or SimpleNamespace(returncode=0),
+                      pypi=lambda: True)
+    assert code == 0 and calls == [["/opt/bin/uv", "tool", "upgrade", "netconverter-cli"]]
+    assert [str(r.url) for r in github.requests] == [update.LATEST_URL]  # no wheel download
+    assert "PyPI" in capsys.readouterr().out
+
+
+def test_pypi_upgrade_failure_is_reported(capsys):
+    code = update.run(args(yes=True), transport=httpx.MockTransport(GitHub()), which=lambda name: "/opt/bin/uv",
+                      runner=lambda argv: SimpleNamespace(returncode=2), pypi=lambda: True)
+    assert code == 1 and "uv tool upgrade failed" in capsys.readouterr().err
+
+
+def test_version_flag(capsys):
+    from netconverter_cli import cli
+
+    with pytest.raises(SystemExit):
+        cli.main(["--version"])
+    assert capsys.readouterr().out.strip() == f"netconverter-cli {__version__}"

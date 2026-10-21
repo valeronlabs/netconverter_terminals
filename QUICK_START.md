@@ -6,19 +6,26 @@ Use synthetic configurations for your first run, and read the
 ## 1. Install
 
 ```sh
-brew install uv                      # if `uv --version` fails
-uv python install 3.12
+curl -LsSf https://netconverter.ai/install.sh | sh
 ```
 
-Download `netconverter_cli-0.3.0-py3-none-any.whl` and `SHA256SUMS` from the
-release page, then:
+This installs uv and `netconverter-cli` from PyPI, signs you in, creates
+`~/migrations` and offers to connect each AI assistant it finds (steps 2 and 6 below).
+Add `--no-connect` (`… | sh -s -- --no-connect`) to only install and sign in.
+
+By hand:
 
 ```sh
-shasum -a 256 -c SHA256SUMS          # stop if this fails
-uv tool install --python 3.12 ./netconverter_cli-0.3.0-py3-none-any.whl
+brew install uv                      # if `uv --version` fails
+uv tool install --python 3.12 netconverter-cli
 uv tool update-shell                 # then open a new Terminal window
-netconverter --help
+netconverter --version
 ```
+
+Without PyPI access, download `netconverter_cli-<version>-py3-none-any.whl` and
+`SHA256SUMS` from the [latest release](https://github.com/valeronlabs/netconverter_terminals/releases/latest),
+run `shasum -a 256 -c SHA256SUMS` (stop if it fails), then
+`uv tool install --python 3.12 ./netconverter_cli-<version>-py3-none-any.whl`.
 
 Coming from 0.1.x? Run `uv tool uninstall netconverter-terminal` first. Your
 saved key, sign-in and per-folder `.netconverter/` state are kept.
@@ -108,9 +115,10 @@ size, SHA-256 and job ID — never content.
 - Quit with `Ctrl+Q`; run `netconverter` in the same folder to continue.
   `/jobs` lists your jobs; `/resume JOB_ID` follows one. An interrupted submit is
   retried by `/resume` with the same idempotency key, so it is not duplicated.
-- Update: `netconverter update` downloads the latest release's wheel and
-  `SHA256SUMS`, checks the hash and runs `uv tool install --force` after you confirm
-  (`--check` only reports). Interactive commands mention a new release at most once
+- Update: `netconverter update` runs `uv tool upgrade netconverter-cli` for a PyPI
+  install; for a copy installed from a wheel it downloads the latest release's wheel
+  and `SHA256SUMS`, checks the hash and runs `uv tool install --force` after you
+  confirm (`--check` only reports). Interactive commands mention a new release at most once
   a day; `NETCONVERTER_NO_UPDATE_CHECK=1` turns that off. Manual route: verify the
   new wheel, then `uv tool install --force ./netconverter_cli-….whl`.
 - Remove: `uv tool uninstall netconverter-cli`. Configs, outputs, Keychain entries

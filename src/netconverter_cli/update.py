@@ -1,8 +1,9 @@
 """`netconverter update` and the once-a-day "new version available" notice.
 
 Only the public GitHub Releases API of this repository is contacted, without
-credentials: no NetConverter key or sign-in is ever sent there. The wheel is
-installed only after its SHA-256 matches the release's ``SHA256SUMS``. The
+credentials: no NetConverter key or sign-in is ever sent there. A copy that uv
+installed from PyPI is upgraded with ``uv tool upgrade``; any other copy gets the
+release wheel, installed only after its SHA-256 matches ``SHA256SUMS``. The
 passive check runs in a background thread with a short timeout, writes a small
 cache file, swallows every error and never prints to stdout.
 """
@@ -19,6 +20,8 @@ import sys
 import tempfile
 import threading
 import time
+import tomllib
+from importlib import metadata
 from pathlib import Path
 from urllib.parse import urlsplit
 
@@ -27,6 +30,7 @@ import httpx
 from . import __version__
 
 REPO = "valeronlabs/netconverter_terminals"
+DIST = "netconverter-cli"
 LATEST_URL = f"https://api.github.com/repos/{REPO}/releases/latest"
 DOWNLOAD_PREFIX = f"https://github.com/{REPO}/releases/download/"
 # GitHub answers an asset download with a redirect to its object storage.
@@ -188,10 +192,37 @@ def fetch_verified_wheel(release: dict, dest: Path, *, transport=None) -> Path:
     return path
 
 
+# -- how this copy was installed ------------------------------------------
+
+# Receipt keys that mean uv installed from a file, URL or checkout, not the index.
+_DIRECT_KEYS = ("path", "url", "git", "directory", "editable")
+
+
+def _has_direct_url() -> bool:
+    """PEP 610: a wheel, URL or checkout install records direct_url.json; an index install does not."""
+    try:
+        return metadata.distribution(DIST).read_text("direct_url.json") is not None
+    except metadata.PackageNotFoundError:
+        return True
+
+
+def from_pypi(prefix=None, direct_url=_has_direct_url) -> bool:
+    """True when this copy is a `uv tool install netconverter-cli` from the package index."""
+    try:
+        receipt = tomllib.loads((Path(prefix or sys.prefix) / "uv-receipt.toml").read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return False
+    for req in (receipt.get("tool") or {}).get("requirements") or []:
+        if isinstance(req, dict) and req.get("name") == DIST:
+            return not any(key in req for key in _DIRECT_KEYS) and not direct_url()
+    return False
+
+
 # -- `netconverter update` ------------------------------------------------
 
 
-def run(args, *, transport=None, runner=subprocess.run, which=shutil.which, ask=input) -> int:
+def run(args, *, transport=None, runner=subprocess.run, which=shutil.which, ask=input,
+        pypi=from_pypi) -> int:
     try:
         release = latest_release(transport=transport)
     except UpdateError as exc:
@@ -210,6 +241,8 @@ def run(args, *, transport=None, runner=subprocess.run, which=shutil.which, ask=
         print(f"NetConverter CLI {__version__} is up to date (latest release {release['version']}).")
         return 0
     uv = which("uv")
+    if uv and pypi():
+        return _upgrade_from_pypi(args, release, uv, runner, ask)
     if not uv:
         print(f"NetConverter CLI {release['version']} is available (installed {__version__}), "
               "but uv is not on PATH. Download the wheel and SHA256SUMS from\n"
@@ -234,6 +267,18 @@ def run(args, *, transport=None, runner=subprocess.run, which=shutil.which, ask=
         print("uv tool install failed; your current version is unchanged.", file=sys.stderr)
         return 1
     print(f"Installed NetConverter CLI {release['version']}.")
+    return 0
+
+
+def _upgrade_from_pypi(args, release, uv, runner, ask) -> int:
+    print(f"Update NetConverter CLI {__version__} → {release['version']} (PyPI, `uv tool upgrade {DIST}`).")
+    if not args.yes and ask("Upgrade it now? [y/N] ").strip().lower() not in {"y", "yes"}:
+        print("Nothing was changed.")
+        return 0
+    if runner([uv, "tool", "upgrade", DIST]).returncode != 0:
+        print("uv tool upgrade failed; your current version is unchanged.", file=sys.stderr)
+        return 1
+    print("Upgraded NetConverter CLI from PyPI. Run `netconverter --version` to confirm.")
     return 0
 
 

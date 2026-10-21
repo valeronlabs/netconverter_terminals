@@ -22,15 +22,28 @@ Both need a NetConverter account with **MCP access enabled** by your administrat
 ## Fastest path (terminal bridge)
 
 ```sh
+curl -LsSf https://netconverter.ai/install.sh | sh          # macOS / Linux
+```
+```powershell
+irm https://netconverter.ai/install.ps1 | iex                # Windows (PowerShell)
+```
+
+The installer installs the CLI, signs you in and runs `connect --all` for `~/migrations`.
+Then restart each assistant. `netconverter connect` shows the exact change and asks
+before writing; every JSON config it edits keeps a `.bak`. `netconverter update` keeps
+the CLI current.
+
+Already installed? The same steps by hand:
+
+```sh
 netconverter login --clerk          # sign in once
 netconverter connect                # see which assistants are found and connected
 netconverter connect --all          # connect every assistant found on this computer
 ```
 
-Then restart each assistant. `netconverter connect` shows the exact change and asks
-before writing; every JSON config it edits keeps a `.bak`. Install the CLI from the
-[latest release](https://github.com/valeronlabs/netconverter_terminals/releases/latest);
-`netconverter update` keeps it current.
+Manual install: `uv tool install --python 3.12 netconverter-cli` ([uv](https://docs.astral.sh/uv)),
+or the wheel from the [latest release](https://github.com/valeronlabs/netconverter_terminals/releases/latest)
+— see [getting access](getting-access.md).
 
 ## Check that it works
 

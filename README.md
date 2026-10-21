@@ -1,5 +1,7 @@
 # NetConverter CLI
 
+<!-- mcp-name: ai.netconverter/netconverter -->
+
 **Migrate, validate and optimize network configurations from the folder that holds them — and let your own AI assistant do it too, without the configuration ever passing through the model.**
 
 NetConverter — by ValeronLabs LLC.
@@ -44,9 +46,26 @@ scope; the app labels it as such.
 
 ## Start here
 
+One line installs everything (uv, the CLI from PyPI), signs you in and connects
+your AI assistants to `~/migrations`:
+
 ```sh
-# 1. Install (Python 3.12+ via uv)
-uv tool install --python 3.12 ./netconverter_cli-0.3.0-py3-none-any.whl
+curl -LsSf https://netconverter.ai/install.sh | sh              # macOS / Linux
+```
+
+```powershell
+irm https://netconverter.ai/install.ps1 | iex                    # Windows PowerShell
+```
+
+Options: `--yes` (no prompts, for IT/MDM), `--no-connect`, `--workspace PATH`
+(`curl … | sh -s -- --yes`; PowerShell: `-Yes -NoConnect -Workspace PATH`, see
+[scripts/install.ps1](scripts/install.ps1)). Running it again only does what is missing.
+
+Or by hand:
+
+```sh
+# 1. Install (Python 3.12+ via uv: https://docs.astral.sh/uv)
+uv tool install --python 3.12 netconverter-cli
 
 # 2. Sign in once
 netconverter login --clerk          # your NetConverter account, in the browser
@@ -88,8 +107,9 @@ through the bridge — paths, sizes, SHA-256 and job IDs only.
 
 ## Stay current
 
-`netconverter update` installs the latest release after checking its SHA-256
-(`--check` only reports). Interactive commands mention a new release at most once
+`netconverter update` upgrades a PyPI install with `uv tool upgrade netconverter-cli`;
+a copy installed from a release wheel gets the latest wheel after its SHA-256 is
+checked (`--check` only reports). Interactive commands mention a new release at most once
 a day; set `NETCONVERTER_NO_UPDATE_CHECK=1` to turn that off.
 
 ## Boundaries

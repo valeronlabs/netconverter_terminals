@@ -38,31 +38,37 @@ ChatGPT works the same way: see [chatgpt.md](chatgpt.md).
 Everything in Option A **plus submitting configurations**; files are uploaded from your
 computer and never pass through the AI model.
 
-1. Install [uv](https://docs.astral.sh/uv/getting-started/installation/), then the CLI from the
-   [latest release](https://github.com/valeronlabs/netconverter_terminals/releases/latest)
-   (no Git needed):
+1. Run the installer. It installs [uv](https://docs.astral.sh/uv) and the CLI, signs you in
+   (your browser opens), creates `~/migrations` and offers to connect each AI assistant it
+   finds:
    ```sh
-   # macOS / Linux
-   curl -LsSf https://astral.sh/uv/install.sh | sh
-   uv tool install --python 3.12 --force https://github.com/valeronlabs/netconverter_terminals/releases/download/v0.3.2/netconverter_cli-0.3.2-py3-none-any.whl
-   uv tool update-shell        # then open a new terminal
+   curl -LsSf https://netconverter.ai/install.sh | sh          # macOS / Linux
    ```
    ```powershell
-   # Windows (PowerShell)
-   powershell -ExecutionPolicy ByPass -c "irm https://astral.sh/uv/install.ps1 | iex"
-   uv tool install --python 3.12 --force https://github.com/valeronlabs/netconverter_terminals/releases/download/v0.3.2/netconverter_cli-0.3.2-py3-none-any.whl
-   uv tool update-shell        # then open a new PowerShell window
-   ```
-2. Sign in and connect your assistants:
-   ```sh
-   netconverter login --clerk
-   mkdir -p ~/migrations                       # Windows: mkdir $HOME\migrations
-   netconverter --workspace ~/migrations connect --all
+   irm https://netconverter.ai/install.ps1 | iex                # Windows (PowerShell)
    ```
    Keep the configurations you want to work on in `~/migrations`.
-3. Fully quit and reopen each assistant. Ask: *"What NetConverter tools do you have?"*
+2. Fully quit and reopen each assistant. Ask: *"What NetConverter tools do you have?"*
 
-`netconverter update` installs new releases.
+`netconverter update` installs new releases. Running the installer again is safe.
+
+**IT / MDM:** `curl -LsSf https://netconverter.ai/install.sh | sh -s -- --yes` connects
+every assistant without prompts (`--no-connect` to skip, `--workspace PATH` for another
+folder); on Windows `& ([scriptblock]::Create((irm https://netconverter.ai/install.ps1))) -Yes`.
+Each user still signs in once with `netconverter login --clerk`.
+
+**By hand** (or if the installer cannot run):
+```sh
+curl -LsSf https://astral.sh/uv/install.sh | sh                 # Windows: powershell -ExecutionPolicy ByPass -c "irm https://astral.sh/uv/install.ps1 | iex"
+uv tool install --python 3.12 netconverter-cli
+uv tool update-shell                                            # then open a new terminal
+netconverter login --clerk
+mkdir -p ~/migrations                                           # Windows: mkdir $HOME\migrations
+netconverter --workspace ~/migrations connect --all
+```
+Without PyPI access, install the wheel from the
+[latest release](https://github.com/valeronlabs/netconverter_terminals/releases/latest) after
+checking it against `SHA256SUMS`: `uv tool install --python 3.12 ./netconverter_cli-<version>-py3-none-any.whl`.
 
 ## If something does not work
 

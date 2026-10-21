@@ -299,7 +299,10 @@ def workspace_settings(args) -> dict:
 
 
 def parser():
+    from . import __version__
+
     p = argparse.ArgumentParser(prog="netconverter")
+    p.add_argument("--version", action="version", version=f"netconverter-cli {__version__}")
     p.add_argument("--workspace", default=".")
     p.add_argument("--server", default=os.getenv("NETCONVERTER_URL"))
     p.add_argument(
@@ -332,7 +335,7 @@ def parser():
     connect.add_argument("--all", action="store_true", help="connect every AI assistant found on this computer")
     connect.add_argument("--print", action="store_true", dest="print_only", help="show the change without applying it")
     connect.add_argument("--yes", action="store_true", help="apply without asking (scripts)")
-    update = subs.add_parser("update", help="install the latest verified release from GitHub")
+    update = subs.add_parser("update", help="upgrade from PyPI, or install the latest verified release from GitHub")
     update.add_argument("--check", action="store_true", help="only report whether a newer release exists")
     update.add_argument("--yes", action="store_true", help="install without asking")
     subs.add_parser("capabilities", help="vendors, conversion paths and limits for your credential")

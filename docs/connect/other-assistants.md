@@ -3,6 +3,11 @@
 All of these run the terminal bridge on your computer, so they can submit
 configurations as well as read results.
 
+The [installer](getting-access.md) (`curl -LsSf https://netconverter.ai/install.sh | sh`, or
+`irm https://netconverter.ai/install.ps1 | iex` on Windows) installs the CLI and connects all
+of them at once. Already installed, or installed by hand
+(`uv tool install --python 3.12 netconverter-cli`):
+
 ```sh
 netconverter login --clerk
 netconverter --workspace ~/migrations connect --all     # every assistant found here

@@ -1,5 +1,21 @@
 # Changelog
 
+## 0.4.0 — 2026-10-21
+
+- **On PyPI as `netconverter-cli`.** `uv tool install --python 3.12 netconverter-cli`
+  installs the CLI; each tagged release is published from GitHub Actions with PyPI
+  trusted publishing, and the wheel plus `SHA256SUMS` stay on the GitHub Release.
+- **One-line installers.** `curl -LsSf https://netconverter.ai/install.sh | sh`
+  (macOS/Linux) and `irm https://netconverter.ai/install.ps1 | iex` (Windows) install uv
+  if needed and the CLI from PyPI (or the latest release wheel after its SHA-256 check
+  when PyPI is unreachable), sign you in, create `~/migrations` and run
+  `connect --all`. `--yes` for IT/MDM, `--no-connect`, `--workspace PATH`. Safe to run
+  again. Sources: `scripts/install.sh`, `scripts/install.ps1`.
+- **`netconverter update` follows the install.** A copy uv installed from PyPI is
+  upgraded with `uv tool upgrade netconverter-cli`; a copy installed from a wheel keeps
+  the verified-wheel path.
+- **`netconverter --version`.**
+
 ## 0.3.2 — 2026-10-21
 
 - **Safer Claude Code read rule.** `connect claude-code` no longer offers the

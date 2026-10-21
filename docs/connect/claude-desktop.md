@@ -6,6 +6,19 @@ configuration text never goes through the model.
 
 ## Set up
 
+Install (skip if `netconverter --version` works):
+
+```sh
+curl -LsSf https://netconverter.ai/install.sh | sh -s -- --no-connect   # macOS / Linux
+```
+```powershell
+$env:NETCONVERTER_INSTALL_NO_CONNECT=1; irm https://netconverter.ai/install.ps1 | iex   # Windows
+```
+
+Manual: `uv tool install --python 3.12 netconverter-cli` — see [getting access](getting-access.md).
+
+Then:
+
 ```sh
 netconverter login --clerk
 netconverter --workspace ~/migrations connect claude-desktop
