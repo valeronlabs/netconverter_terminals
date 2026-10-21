@@ -71,7 +71,8 @@ jobs:
         with:
           name: dist
           path: dist/
-      - uses: pypa/gh-action-pypi-publish@release/v1
+      # Pinned: this step holds the OIDC token PyPI trusts. Bump the SHA with its tag.
+      - uses: pypa/gh-action-pypi-publish@7245906fb61fa33a13554f9d5fb856fe61758086  # v1.14.3
 
   github-release:
     needs: pypi
