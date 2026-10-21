@@ -39,14 +39,24 @@ Everything in Option A **plus submitting configurations**; files are uploaded fr
 computer and never pass through the AI model.
 
 1. Install [uv](https://docs.astral.sh/uv/getting-started/installation/), then the CLI from the
-   [latest release](https://github.com/valeronlabs/netconverter_terminals/releases/latest):
+   [latest release](https://github.com/valeronlabs/netconverter_terminals/releases/latest)
+   (no Git needed):
    ```sh
-   uv tool install --python 3.12 --force git+https://github.com/valeronlabs/netconverter_terminals
+   # macOS / Linux
+   curl -LsSf https://astral.sh/uv/install.sh | sh
+   uv tool install --python 3.12 --force https://github.com/valeronlabs/netconverter_terminals/releases/download/v0.3.2/netconverter_cli-0.3.2-py3-none-any.whl
+   uv tool update-shell        # then open a new terminal
+   ```
+   ```powershell
+   # Windows (PowerShell)
+   powershell -ExecutionPolicy ByPass -c "irm https://astral.sh/uv/install.ps1 | iex"
+   uv tool install --python 3.12 --force https://github.com/valeronlabs/netconverter_terminals/releases/download/v0.3.2/netconverter_cli-0.3.2-py3-none-any.whl
+   uv tool update-shell        # then open a new PowerShell window
    ```
 2. Sign in and connect your assistants:
    ```sh
    netconverter login --clerk
-   mkdir -p ~/migrations
+   mkdir -p ~/migrations                       # Windows: mkdir $HOME\migrations
    netconverter --workspace ~/migrations connect --all
    ```
    Keep the configurations you want to work on in `~/migrations`.
