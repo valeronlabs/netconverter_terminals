@@ -38,6 +38,32 @@ _RESERVED_OPTIONS = frozenset(
     {"source_config", "file_id", "source_vendor", "target_vendor", "job_type", "configuration_id"}
 )
 
+# Remote NetConverter MCP tools this bridge may proxy. Anything else the server
+# advertises (a new tool, a renamed one, any ``submit_*``) is dropped until a
+# client release adds it here: the server cannot widen what the AI can call.
+REMOTE_TOOLS_DEFAULT = frozenset({
+    "compare_against_intent", "fetch", "get_account", "get_acl_summary",
+    "get_critical_object_impact", "get_dependency_chains", "get_evidence",
+    "get_interface_summary", "get_job_brief", "get_management_config", "get_nat_summary",
+    "get_object_dependencies", "get_object_summary", "get_report", "get_route_summary",
+    "get_target_config", "get_translation_edge_summary", "get_unused_objects",
+    "get_vpn_summary", "get_zone_summary", "kb_explain", "kb_search", "list_jobs",
+    "list_objects_with_attribute", "list_rules_matching", "query_ir", "search",
+    "select_job", "simulate_flow", "vendor_capability_lookup",
+})
+# Strict view mode (server decision 86): summaries with names as <name:…> tokens.
+# `netconverter mcp --strict` proxies only these, whatever the server advertises.
+REMOTE_TOOLS_STRICT = frozenset({
+    "list_jobs", "select_job", "get_account", "search", "fetch", "kb_search", "kb_explain",
+    "vendor_capability_lookup", "get_job_brief", "get_evidence", "get_report",
+})
+assert REMOTE_TOOLS_STRICT <= REMOTE_TOOLS_DEFAULT
+
+
+def remote_allowed(name, allowlist=REMOTE_TOOLS_DEFAULT) -> bool:
+    """A remote tool the bridge may list and call. ``submit_*`` never is."""
+    return isinstance(name, str) and not name.startswith("submit_") and name in allowlist
+
 INSTRUCTIONS = (
     "NetConverter local bridge. To work on a configuration, pass its file PATH "
     "(inside the configured workspace folder) to submit_file. Never paste, quote "
@@ -138,8 +164,10 @@ class Bridge:
     """Implements the local tools and proxies the remote catalogue."""
 
     def __init__(self, workspace, server: str, rest_credential=None, remote: RemoteMCP | None = None,
-                 *, transport=None):
+                 *, transport=None, strict: bool = False):
         self.workspace = Workspace(workspace)
+        self.strict = bool(strict)
+        self.remote_allowlist = REMOTE_TOOLS_STRICT if self.strict else REMOTE_TOOLS_DEFAULT
         self.server = server
         self.rest_credential = rest_credential
         self.remote = remote
@@ -348,6 +376,8 @@ class Bridge:
             return tools
         for tool in remote_tools:
             name = tool["name"]
+            if not remote_allowed(name, self.remote_allowlist):
+                continue
             local_name = f"remote_{name}" if name in LOCAL_NAMES else name
             if local_name in LOCAL_NAMES or local_name in self._remote_names:
                 continue
@@ -373,7 +403,7 @@ class Bridge:
         if self.remote is not None and not self._remote_names:
             self.list_tools()
         remote_name = self._remote_names.get(name)
-        if remote_name is None or self.remote is None:
+        if remote_name is None or self.remote is None or not remote_allowed(remote_name, self.remote_allowlist):
             return _error_result("unknown_tool", f"Unknown tool '{name}'; call tools/list")
         try:
             return self.remote.call_tool(remote_name, arguments)  # remote summaries, as-is

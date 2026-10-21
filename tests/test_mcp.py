@@ -266,9 +266,10 @@ def test_external_download_saves_translated_and_report(workspace):
 
 
 class RemoteServer:
-    def __init__(self, require_token="REMOTE_TOKEN"):
+    def __init__(self, require_token="REMOTE_TOKEN", tools=("get_report", "download")):
         self.requests = []
         self.require_token = require_token
+        self.tools = tools
 
     def __call__(self, request):
         self.requests.append(request)
@@ -287,8 +288,8 @@ class RemoteServer:
         assert request.headers["Mcp-Session-Id"] == "sess-1"
         if method == "tools/list":
             body = {"jsonrpc": "2.0", "id": message["id"], "result": {"tools": [
-                {"name": "get_report", "description": "remote report", "inputSchema": {"type": "object"}},
-                {"name": "download", "description": "remote collision", "inputSchema": {"type": "object"}},
+                {"name": name, "description": f"remote {name}", "inputSchema": {"type": "object"}}
+                for name in self.tools
             ]}}
             # Streamable HTTP may answer as an event stream.
             return httpx.Response(200, text="event: message\ndata: " + json.dumps(body) + "\n\n",
@@ -302,19 +303,79 @@ class RemoteServer:
                                          "error": {"code": -32601, "message": "nope"}})
 
 
-def test_remote_tools_are_proxied_as_is(workspace):
-    remote_server = RemoteServer()
+LOCAL = ["submit_file", "job_status", "download"]
+
+
+def remote_bridge(workspace, tools, strict=False):
+    remote_server = RemoteServer(tools=tools)
     remote = RemoteMCP("https://api.example/mcp/v1/", StaticCredential("REMOTE_TOKEN"),
                        transport=httpx.MockTransport(remote_server))
-    bridge = make_bridge(workspace, QuickServer(), remote=remote)
+    bridge = Bridge(workspace, SERVER, StaticCredential("nck_synthetic"), remote,
+                    transport=httpx.MockTransport(QuickServer()), strict=strict)
+    return bridge, remote_server
+
+
+def test_allowlisted_remote_tools_are_proxied_as_is(workspace):
+    bridge, remote_server = remote_bridge(workspace, ("get_report", "download", "kb_search"))
     names = [t["name"] for t in bridge.list_tools()]
-    assert names == ["submit_file", "job_status", "download", "get_report", "remote_download"]
+    # "download" is not a remote tool the bridge proxies, so there is no remote_download.
+    assert names == LOCAL + ["get_report", "kb_search"]
     result = bridge.call("get_report", {"job_id": "abc"})
     assert result == {"content": [{"type": "text", "text": "summary for get_report"}],
                       "isError": False, "structuredContent": {"args": {"job_id": "abc"}}}
-    assert bridge.call("remote_download", {})["content"][0]["text"] == "summary for download"
+    assert bridge.call("remote_download", {})["isError"] is True
     assert bridge.call("not_a_tool", {})["isError"] is True
     assert all(r.url == "https://api.example/mcp/v1/" for r in remote_server.requests)
+
+
+def test_unlisted_and_submit_remote_tools_are_never_proxied(workspace):
+    advertised = ("get_report", "submit_job", "submit_file", "delete_job", "run_shell", "get_nat_summary")
+    bridge, remote_server = remote_bridge(workspace, advertised)
+    names = [t["name"] for t in bridge.list_tools()]
+    assert names == LOCAL + ["get_report", "get_nat_summary"]
+    for name in ("submit_job", "remote_submit_file", "delete_job", "run_shell"):
+        payload = json.loads(bridge.call(name, {})["content"][0]["text"])
+        assert payload["error"] == "unknown_tool"
+    called = [json.loads(r.content).get("params", {}).get("name") for r in remote_server.requests
+              if json.loads(r.content).get("method") == "tools/call"]
+    assert called == []
+
+
+def test_remote_allowlist_rules():
+    from netconverter_cli.mcp_server import REMOTE_TOOLS_DEFAULT, REMOTE_TOOLS_STRICT, remote_allowed
+
+    assert REMOTE_TOOLS_STRICT <= REMOTE_TOOLS_DEFAULT
+    assert not any(n.startswith("submit_") for n in REMOTE_TOOLS_DEFAULT)
+    assert remote_allowed("get_account") and remote_allowed("get_account", REMOTE_TOOLS_STRICT)
+    assert not remote_allowed("submit_job", frozenset({"submit_job"}))  # never, even if listed
+    assert not remote_allowed("get_nat_summary", REMOTE_TOOLS_STRICT)
+    assert not remote_allowed(None)
+
+
+def test_strict_mode_proxies_only_the_strict_set(workspace):
+    advertised = ("list_jobs", "get_report", "get_nat_summary", "simulate_flow", "query_ir",
+                  "get_account", "kb_search", "submit_job")
+    bridge, _ = remote_bridge(workspace, advertised, strict=True)
+    names = [t["name"] for t in bridge.list_tools()]
+    assert names == LOCAL + ["list_jobs", "get_report", "get_account", "kb_search"]
+    payload = json.loads(bridge.call("query_ir", {})["content"][0]["text"])
+    assert payload["error"] == "unknown_tool"
+    assert bridge.call("get_account", {})["isError"] is False
+
+
+@pytest.mark.parametrize("argv,env,expected", [
+    (["mcp"], {}, False),
+    (["mcp", "--strict"], {}, True),
+    (["mcp"], {"NETCONVERTER_MCP_STRICT": "1"}, True),
+    (["mcp"], {"NETCONVERTER_MCP_STRICT": "0"}, False),
+])
+def test_strict_flag_and_environment(monkeypatch, argv, env, expected):
+    from netconverter_cli import cli
+
+    monkeypatch.delenv("NETCONVERTER_MCP_STRICT", raising=False)
+    for key, value in env.items():
+        monkeypatch.setenv(key, value)
+    assert cli.parser().parse_args(argv).strict is expected
 
 
 def test_remote_401_refreshes_once_then_succeeds(workspace):
@@ -343,7 +404,7 @@ def test_remote_unavailable_still_serves_local_tools(workspace, capsys):
     remote = RemoteMCP("https://api.example/mcp/v1/", StaticCredential("WRONG"),
                        transport=httpx.MockTransport(RemoteServer()))
     bridge = make_bridge(workspace, QuickServer(), remote=remote)
-    assert [t["name"] for t in bridge.list_tools()] == ["submit_file", "job_status", "download"]
+    assert [t["name"] for t in bridge.list_tools()] == LOCAL
     assert "WRONG" not in capsys.readouterr().err
 
 
@@ -410,7 +471,7 @@ def test_stdio_subprocess_round_trip(workspace):
     replies = [json.loads(line) for line in proc.stdout.splitlines()]
     assert [r["id"] for r in replies] == [1, 2, 3, 4]
     assert replies[0]["result"]["protocolVersion"] == "2025-11-25"
-    assert [t["name"] for t in replies[1]["result"]["tools"]] == ["submit_file", "job_status", "download"]
+    assert [t["name"] for t in replies[1]["result"]["tools"]] == LOCAL
     assert replies[2]["result"]["isError"] is True
     assert json.loads(replies[2]["result"]["content"][0]["text"])["error"] == "invalid_path"
     assert json.loads(replies[3]["result"]["content"][0]["text"])["error"] == "invalid_arguments"
@@ -437,7 +498,7 @@ def test_signed_out_clerk_session_is_a_clear_tool_error(workspace):
         {"jsonrpc": "2.0", "id": 2, "method": "tools/call", "params": {"name": "job_status",
                                                                          "arguments": {"job_id": "trm_1"}}},
     ])
-    assert [t["name"] for t in replies[0]["result"]["tools"]] == ["submit_file", "job_status", "download"]
+    assert [t["name"] for t in replies[0]["result"]["tools"]] == LOCAL
     payload = json.loads(replies[1]["result"]["content"][0]["text"])
     assert payload["error"] == "not_signed_in" and "login --clerk" in payload["message"]
 

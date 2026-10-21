@@ -175,7 +175,7 @@ def run_mcp(args):
     if remote_credential is not None and not args.no_remote:
         remote = RemoteMCP(mcp_url, remote_credential, client_version=__version__)
     try:
-        run_stdio(Bridge(args.workspace, args.server, rest, remote))
+        run_stdio(Bridge(args.workspace, args.server, rest, remote, strict=getattr(args, "strict", False)))
     finally:
         if remote:
             remote.close()
@@ -264,6 +264,8 @@ def parser():
     mcp.add_argument("--auth", choices=["auto", "clerk", "key"], default=os.getenv("NETCONVERTER_MCP_AUTH", "auto"))
     mcp.add_argument("--mcp-url", default=os.getenv("NETCONVERTER_MCP_URL"))
     mcp.add_argument("--no-remote", action="store_true", help="serve only the local file tools")
+    mcp.add_argument("--strict", action="store_true", default=os.getenv("NETCONVERTER_MCP_STRICT") == "1",
+                     help="proxy only the strict-view remote tools (summaries, names as tokens)")
     mcp.add_argument("--workspace", default=argparse.SUPPRESS, help="folder the file tools may read and write")
     connect = subs.add_parser("connect", help="wire an AI assistant (claude-code, cursor, vscode, codex) to this folder")
     connect.add_argument("client", nargs="?", choices=["claude-code", "cursor", "vscode", "codex"])

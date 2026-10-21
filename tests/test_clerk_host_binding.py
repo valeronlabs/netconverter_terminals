@@ -64,7 +64,7 @@ def test_mcp_bridge_never_hands_the_token_to_an_untrusted_url(monkeypatch):
     monkeypatch.setattr(cli, "get_secret", lambda *a, **k: "")
     monkeypatch.setattr(remote_mcp, "RemoteMCP", FakeRemote)
     monkeypatch.setattr(mcp_server, "run_stdio", lambda bridge: seen.setdefault("rest", bridge))
-    monkeypatch.setattr(mcp_server, "Bridge", lambda ws, server, rest, remote: rest)
+    monkeypatch.setattr(mcp_server, "Bridge", lambda ws, server, rest, remote, **kw: rest)
 
     args = type("A", (), {"server": "https://evil.example/external/v1", "auth": "auto",
                           "mcp_url": "https://evil.example/mcp/v1/", "no_remote": False,
