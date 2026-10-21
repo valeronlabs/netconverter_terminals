@@ -193,15 +193,46 @@ def remote_for(server, credential):
 
 
 def run_connect(args, ask=input):
-    from .connect import CLIENTS, configured_clients, plan
+    from .connect import CLIENTS, configured_clients, installed_local_clients, plan
 
     root = Path(args.workspace).resolve()
+    if getattr(args, "all", False):
+        targets = [k for k in installed_local_clients() if CLIENTS[k].title not in configured_clients(root)]
+        if not targets:
+            print("Every AI assistant found on this computer is already connected.")
+            return
+        print("Connecting: " + ", ".join(CLIENTS[k].title for k in targets) + "\n")
+        failed = 0
+        for key in targets:
+            try:
+                _connect_one(argparse.Namespace(**{**vars(args), "client": key, "all": False}), root, ask)
+            except SystemExit as exc:
+                failed += 1 if exc.code else 0
+            print()
+        print("Restart each assistant to load the netconverter tools.")
+        if failed:
+            raise SystemExit(1)
+        return
     if not args.client:
         done = configured_clients(root)
+        found = set(installed_local_clients())
         for key, spec in CLIENTS.items():
-            print(f"  {'●' if spec.title in done else '○'} {key:<14} {spec.title}")
+            if spec.kind == "remote":
+                mark, note = "↗", "remote connector (setup steps)"
+            elif spec.title in done:
+                mark, note = "●", "connected"
+            else:
+                mark, note = "○", "found on this computer" if key in found else ""
+            print(f"  {mark} {key:<15} {spec.title:<28} {note}".rstrip())
         print("\nnetconverter connect <client>   shows the change, then asks before applying it")
+        print("netconverter connect --all      connects every assistant found on this computer")
         return
+    _connect_one(args, root, ask)
+
+
+def _connect_one(args, root, ask):
+    from .connect import CLIENTS, plan
+
     change = plan(args.client, root)
     print(f"{change.title}: {change.summary}\n\n{change.preview}\n")
     if args.print_only:
@@ -210,6 +241,8 @@ def run_connect(args, ask=input):
         return
     if not change.can_apply:
         print(change.manual)
+        if CLIENTS.get(args.client) and CLIENTS[args.client].kind == "remote":
+            return  # setup steps, not a failure
         raise SystemExit(1)
     if not args.yes and ask(f"Apply to {change.where}? [y/N] ").strip().lower() not in {"y", "yes"}:
         print("Nothing was changed.")
@@ -288,9 +321,11 @@ def parser():
     mcp.add_argument("--strict", action="store_true", default=os.getenv("NETCONVERTER_MCP_STRICT") == "1",
                      help="proxy only the strict-view remote tools (summaries, names as tokens)")
     mcp.add_argument("--workspace", default=argparse.SUPPRESS, help="folder the file tools may read and write")
+    from .connect import CLIENTS as _AI_CLIENTS
     connect = subs.add_parser(
-        "connect", help="wire an AI assistant (claude-code, claude-desktop, cursor, vscode, codex) to this folder")
-    connect.add_argument("client", nargs="?", choices=["claude-code", "claude-desktop", "cursor", "vscode", "codex"])
+        "connect", help="wire an AI assistant (Claude, Cursor, Gemini, ChatGPT, …) to this folder")
+    connect.add_argument("client", nargs="?", choices=list(_AI_CLIENTS))
+    connect.add_argument("--all", action="store_true", help="connect every AI assistant found on this computer")
     connect.add_argument("--print", action="store_true", dest="print_only", help="show the change without applying it")
     connect.add_argument("--yes", action="store_true", help="apply without asking (scripts)")
     update = subs.add_parser("update", help="install the latest verified release from GitHub")

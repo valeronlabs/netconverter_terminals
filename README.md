@@ -64,7 +64,9 @@ Full walkthrough: [Quick start](QUICK_START.md).
 ## Use it from your AI
 
 ```sh
-netconverter connect claude-code    # or claude-desktop, cursor, vscode, codex
+netconverter connect claude-code    # or claude-desktop, cursor, vscode, codex, gemini, windsurf, lmstudio
+netconverter connect --all          # every assistant found on this computer
+netconverter connect chatgpt        # ChatGPT / claude.ai: remote-connector setup steps
 ```
 
 `connect` shows the exact change it will make and asks before applying it

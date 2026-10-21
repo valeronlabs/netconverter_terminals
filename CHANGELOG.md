@@ -1,5 +1,18 @@
 # Changelog
 
+## 0.3.1 — 2026-10-21
+
+- **More assistants.** `netconverter connect gemini` (Gemini CLI), `windsurf` and
+  `lmstudio` merge the bridge into each client's MCP config, keeping every other key
+  and a `.bak`, like `claude-desktop`.
+- **ChatGPT and claude.ai.** `netconverter connect chatgpt` / `claude-ai` print the
+  steps to add NetConverter's hosted MCP as a custom connector. Those apps cannot start
+  a local program, so they read jobs, results and the knowledge base but do not submit
+  files; nothing on the computer is changed.
+- **`netconverter connect --all`** connects every local assistant found on this
+  computer that is not connected yet, one prompt each (`--yes` for all). The list view
+  now marks connected (●), found (○ found on this computer) and remote (↗) clients.
+
 ## 0.3.0 — 2026-10-20
 
 - **Remote tool allowlist.** The bridge proxies a NetConverter MCP tool only when it

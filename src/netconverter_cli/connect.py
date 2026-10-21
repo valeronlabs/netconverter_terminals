@@ -96,6 +96,10 @@ def _diff(path: Path, before, after: dict) -> str:
 class ClientSpec:
     title: str
     configured: Callable[[], bool]
+    # "local" clients start the bridge themselves; "remote" ones (ChatGPT, claude.ai)
+    # can only reach an HTTPS MCP server, so connect prints their setup steps.
+    kind: str = "local"
+    installed: Callable[[], bool] = lambda: True
 
 
 def _claude_configured() -> bool:
@@ -204,18 +208,129 @@ def plan_claude_read_deny(root: Path) -> Change:
                   _diff(path, data if path.exists() else None, after), apply=write, default_yes=True)
 
 
+def _json_servers_configured(path: Path | None) -> bool:
+    data = (_read_json(path) or {}) if path else {}
+    servers = data.get("mcpServers") or {}
+    return isinstance(servers, dict) and any(_is_ours(e) for e in servers.values())
+
+
+def _gemini_path() -> Path:
+    return Path.home() / ".gemini" / "settings.json"
+
+
+def _windsurf_path() -> Path:
+    return Path.home() / ".codeium" / "windsurf" / "mcp_config.json"
+
+
+def _lmstudio_path() -> Path:
+    return Path.home() / ".lmstudio" / "mcp.json"
+
+
+def _exists(path_of: Callable[[], Path]) -> Callable[[], bool]:
+    """Installed when the client's config folder exists (resolved per call, never at import)."""
+    return lambda: path_of().parent.exists()
+
+
+def _plan_json_servers(key: str, title: str, path: Path, entry: dict, done: str) -> Change:
+    """Merge mcpServers.netconverter into a client's JSON config, keeping every other key."""
+    block = json.dumps({"mcpServers": {SERVER_NAME: entry}}, indent=2)
+    data = _read_json(path)
+    if data is None or not isinstance(data.get("mcpServers", {}), dict):
+        return Change(key, title, str(path),
+                      f"{title}'s config is not valid JSON (or mcpServers is not an object); edit it by hand.",
+                      block, can_apply=False, manual=f"Add the block above to {path}.")
+    after = json.loads(json.dumps(data))
+    after.setdefault("mcpServers", {})[SERVER_NAME] = entry
+
+    def write() -> str:
+        current = _read_json(path)  # re-read: never drop a change made since the preview
+        if current is None or not isinstance(current.get("mcpServers", {}), dict):
+            raise RuntimeError(f"{path} is no longer valid JSON; nothing was changed")
+        current.setdefault("mcpServers", {})[SERVER_NAME] = entry
+        _write_json(path, current)
+        return f"Updated {path}. {done}"
+    return Change(key, title, str(path),
+                  f"Sets mcpServers.{SERVER_NAME} in {path}, keeping everything else (backup: .bak).",
+                  _diff(path, data if path.exists() else None, after), apply=write)
+
+
+def remote_url() -> str:
+    from .remote_mcp import DEFAULT_MCP_URL
+    return os.getenv("NETCONVERTER_MCP_URL", DEFAULT_MCP_URL).rstrip("/")
+
+
+REMOTE_STEPS = {
+    "chatgpt": (
+        "ChatGPT",
+        "In ChatGPT: Settings → Apps & Connectors → Advanced settings → turn on Developer mode, "
+        "then Create (custom connector).\n"
+        "  Name:            NetConverter\n"
+        "  MCP server URL:  {url}\n"
+        "  Authentication:  OAuth. Under advanced OAuth settings enter the NetConverter OAuth\n"
+        "                   client ID your administrator gives you, then sign in with your\n"
+        "                   NetConverter account when asked.\n"
+        "Then enable NetConverter in a chat from the + menu (Developer mode)."),
+    "claude-ai": (
+        "claude.ai (web and mobile)",
+        "On claude.ai: Settings → Connectors → Add custom connector.\n"
+        "  Name:  NetConverter\n"
+        "  URL:   {url}\n"
+        "  Advanced settings → OAuth Client ID: the NetConverter OAuth client ID your\n"
+        "  administrator gives you.\n"
+        "Click Connect and sign in with your NetConverter account."),
+}
+
+
+def plan_remote(key: str) -> Change:
+    title, steps = REMOTE_STEPS[key]
+    url = remote_url()
+    return Change(key, title, title,
+                  f"{title} can only use remote MCP servers, so it connects to NetConverter's hosted "
+                  "MCP rather than this folder's bridge. You get your jobs, results, account and "
+                  "knowledge base; to submit a configuration, use a local client "
+                  "(Claude Desktop, Claude Code, Cursor, Gemini CLI …) with this bridge. "
+                  "Your NetConverter administrator must have MCP access enabled for your account.",
+                  steps.format(url=url), can_apply=False,
+                  manual="Follow the steps above in the app; nothing on this computer needs to change.")
+
+
 def _vscode_configured(root: Path | None = None) -> bool:
     data = _read_json((root or Path.cwd()) / ".vscode" / "mcp.json") or {}
     return any(_is_ours(e) for e in (data.get("servers") or {}).values())
 
 
 CLIENTS = {
-    "claude-code": ClientSpec("Claude Code", _claude_configured),
-    "claude-desktop": ClientSpec("Claude Desktop", _desktop_configured),
-    "cursor": ClientSpec("Cursor", _cursor_configured),
-    "vscode": ClientSpec("VS Code", _vscode_configured),
-    "codex": ClientSpec("Codex CLI", _codex_configured),
+    "claude-code": ClientSpec("Claude Code", _claude_configured,
+                              installed=lambda: bool(shutil.which("claude")) or (Path.home() / ".claude.json").exists()),
+    "claude-desktop": ClientSpec("Claude Desktop", _desktop_configured,
+                                 installed=lambda: bool(_desktop_path()) and _desktop_path().parent.exists()),
+    "cursor": ClientSpec("Cursor", _cursor_configured, installed=_exists(_cursor_path)),
+    "vscode": ClientSpec("VS Code", _vscode_configured,
+                         installed=lambda: bool(shutil.which("code"))),
+    "codex": ClientSpec("Codex CLI", _codex_configured, installed=_exists(_codex_path)),
+    "gemini": ClientSpec("Gemini CLI", lambda: _json_servers_configured(_gemini_path()),
+                         installed=lambda: bool(shutil.which("gemini")) or _gemini_path().parent.exists()),
+    "windsurf": ClientSpec("Windsurf", lambda: _json_servers_configured(_windsurf_path()),
+                           installed=_exists(_windsurf_path)),
+    "lmstudio": ClientSpec("LM Studio", lambda: _json_servers_configured(_lmstudio_path()),
+                           installed=lambda: (Path.home() / ".lmstudio").exists()),
+    "chatgpt": ClientSpec("ChatGPT", lambda: False, kind="remote"),
+    "claude-ai": ClientSpec("claude.ai (web and mobile)", lambda: False, kind="remote"),
 }
+
+
+def installed_local_clients() -> list[str]:
+    """Local clients that look installed on this computer (for connect --all)."""
+    out = []
+    for key, spec in CLIENTS.items():
+        if spec.kind != "local" or key == "vscode":  # VS Code is per folder, not per user
+            continue
+        try:
+            if spec.installed():
+                out.append(key)
+        except Exception:
+            continue
+    return out
 
 
 def plan(key: str, root: Path) -> Change:
@@ -260,6 +375,17 @@ def plan(key: str, root: Path) -> Change:
         return Change(key, "Claude Desktop", str(path),
                       f"Sets mcpServers.{SERVER_NAME} in {path}, keeping everything else (backup: .bak).",
                       _diff(path, data if path.exists() else None, after), apply=write)
+    if key == "gemini":
+        return _plan_json_servers(key, "Gemini CLI", _gemini_path(), {"command": exe, "args": _args(root)},
+                                  "Restart gemini, then run /mcp to see the netconverter tools.")
+    if key == "windsurf":
+        return _plan_json_servers(key, "Windsurf", _windsurf_path(), {"command": exe, "args": _args(root)},
+                                  "Refresh MCP servers in Windsurf (Cascade → MCP) or restart it.")
+    if key == "lmstudio":
+        return _plan_json_servers(key, "LM Studio", _lmstudio_path(), {"command": exe, "args": _args(root)},
+                                  "Restart LM Studio; use a tool-capable model to call the netconverter tools.")
+    if key in REMOTE_STEPS:
+        return plan_remote(key)
     if key == "cursor":
         path = _cursor_path()
         data = _read_json(path)
@@ -314,6 +440,8 @@ def plan(key: str, root: Path) -> Change:
 def configured_clients(root: Path | None = None) -> list[str]:
     out = []
     for key, spec in CLIENTS.items():
+        if spec.kind != "local":
+            continue
         try:
             ok = _vscode_configured(root) if key == "vscode" else spec.configured()
         except Exception:

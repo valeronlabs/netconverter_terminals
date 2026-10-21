@@ -75,6 +75,8 @@ netconverter query flow --arguments '{"source_ip":"192.0.2.10","destination_ip":
 netconverter connect                     # list assistants and whether they are connected
 netconverter connect cursor --print      # show the change only
 netconverter connect claude-desktop      # merge into claude_desktop_config.json (macOS, Windows)
+netconverter connect --all               # every assistant found on this computer, one prompt each
+netconverter connect chatgpt             # ChatGPT / claude.ai: prints remote-connector setup steps
 netconverter mcp --workspace ~/migrations   # what an assistant runs; not for interactive use
 netconverter mcp --strict --workspace ~/migrations   # strict-view remote tools only
 netconverter update --check              # is a newer release published? (JSON)
@@ -84,8 +86,14 @@ netconverter update --yes                # same, without the prompt
 
 `connect` targets: `claude-code` (through `claude mcp add`, user scope; then offers
 a `Read(//<folder>/**)` deny rule in `~/.claude/settings.json`, default yes),
-`claude-desktop`, `cursor`, `vscode` (this folder's `.vscode/mcp.json`) and `codex`.
-`--print` shows every change without writing; `--yes` applies all of them.
+`claude-desktop`, `cursor`, `vscode` (this folder's `.vscode/mcp.json`), `codex`,
+`gemini` (Gemini CLI, `~/.gemini/settings.json`), `windsurf`
+(`~/.codeium/windsurf/mcp_config.json`) and `lmstudio` (`~/.lmstudio/mcp.json`).
+`chatgpt` and `claude-ai` only reach remote MCP servers, so `connect` prints the steps
+to add NetConverter's hosted MCP (`https://api.netconverter.ai/mcp/v1`) in that app and
+changes nothing locally; those apps read jobs, results and the knowledge base but cannot
+submit files. `--all` connects every local assistant whose config folder exists and that
+is not connected yet. `--print` shows every change without writing; `--yes` applies all of them.
 
 `update` reads the latest release of `valeronlabs/netconverter_terminals` from the
 public GitHub API, downloads the wheel and `SHA256SUMS` to a temporary folder,

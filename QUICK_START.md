@@ -92,6 +92,8 @@ deterministic checks, not by AI.
 netconverter connect                 # which assistants are already connected
 netconverter connect claude-code     # shows the change, asks, then applies
 netconverter connect claude-desktop  # Claude Desktop: merges its config file, keeps a .bak
+netconverter connect --all           # every assistant found here (Gemini CLI, Cursor, Codex …)
+netconverter connect chatgpt         # ChatGPT or claude.ai: prints the remote-connector steps
 ```
 
 Or `/connect` inside the app. For Claude Code, `connect` then offers a second
