@@ -5,7 +5,7 @@
 NetConverter — by ValeronLabs LLC.
 
 ```text
-◆ NetConverter  v0.2.0                      ● Server   ◆ Bridge claude-code · 2m ago
+◆ NetConverter  v0.3.0                      ● Server   ◆ Bridge claude-code · 2m ago
 ▍ Start
 ▍ /convert    Migrate a configuration to another vendor
 ▍ /validate   Check a configuration before migrating
@@ -46,7 +46,7 @@ scope; the app labels it as such.
 
 ```sh
 # 1. Install (Python 3.12+ via uv)
-uv tool install --python 3.12 ./netconverter_cli-0.2.2-py3-none-any.whl
+uv tool install --python 3.12 ./netconverter_cli-0.3.0-py3-none-any.whl
 
 # 2. Sign in once
 netconverter login --clerk          # your NetConverter account, in the browser
@@ -64,16 +64,28 @@ Full walkthrough: [Quick start](QUICK_START.md).
 ## Use it from your AI
 
 ```sh
-netconverter connect claude-code    # or cursor, vscode, codex
+netconverter connect claude-code    # or claude-desktop, cursor, vscode, codex
 ```
 
 `connect` shows the exact change it will make and asks before applying it
-(Claude Code through its own `claude mcp add`; JSON files keep a `.bak`).
+(Claude Code through its own `claude mcp add`; JSON files keep a `.bak`). For
+Claude Code it then offers a `Read` deny rule for the folder, so the assistant
+works on your configurations only through the bridge.
 Then ask your assistant, for example: *"Validate edge-fw.conf and tell me what it finds,"*
 *"Convert it to Palo Alto XML,"* *"Can WEB reach DB on tcp/1433?"*
 
+Bridge tools: `submit_file`, `job_status`, `wait_for_job`, `account`, `download`,
+plus an allowlist of NetConverter's read-only tools (reports, evidence, NAT, flows,
+knowledge base). `netconverter mcp --strict` narrows those to the strict-view set.
+
 Inside the app, `/activity` and the header's **Bridge** pill show what your AI did
 through the bridge — paths, sizes, SHA-256 and job IDs only.
+
+## Stay current
+
+`netconverter update` installs the latest release after checking its SHA-256
+(`--check` only reports). Interactive commands mention a new release at most once
+a day; set `NETCONVERTER_NO_UPDATE_CHECK=1` to turn that off.
 
 ## Boundaries
 

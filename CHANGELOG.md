@@ -1,5 +1,34 @@
 # Changelog
 
+## 0.3.0 — 2026-10-20
+
+- **Remote tool allowlist.** The bridge proxies a NetConverter MCP tool only when it
+  is on the client's allowlist: the read tools the server advertises today plus the
+  new `get_account`. A tool the server adds later, or any `submit_*` tool, is not
+  offered to your AI until a client release lists it.
+- **Strict mode.** `netconverter mcp --strict` (or `NETCONVERTER_MCP_STRICT=1`)
+  proxies only the strict-view set: `list_jobs`, `select_job`, `get_account`, `search`,
+  `fetch`, `kb_search`, `kb_explain`, `vendor_capability_lookup`, `get_job_brief`,
+  `get_evidence`, `get_report`, whatever the server advertises. When your account is
+  in the server's strict view mode, names in results arrive as `<name:…>` tokens.
+- **New bridge tools.** `account` (tier, job types, rate limit, daily quota, auth kind,
+  client version, `update_available`; no tokens or e-mail addresses) and
+  `wait_for_job(job_id, timeout_s ≤ 600)`, which polls with backoff and returns the
+  `job_status` summary plus `waited_s` and `timed_out`. It sends MCP progress
+  notifications when the assistant asks for them. `job_status` also reports the job's
+  stage and percentage when the server sends them. `submit_file` accepts
+  `job_type: "analyze"` as an alias of validate.
+- **`netconverter connect claude-desktop`** merges the bridge into Claude Desktop's
+  `claude_desktop_config.json` (macOS and Windows), after showing a diff, with a `.bak`.
+- **Claude Code read rule.** After `connect claude-code`, the CLI and the app offer
+  (default yes) to add `Read(//<folder>/**)` to `permissions.deny` in
+  `~/.claude/settings.json`, so Claude Code works on the folder's configurations
+  through the bridge instead of reading them itself. See [privacy](docs/PRIVACY.md).
+- **`netconverter update`** installs the latest GitHub release after verifying its
+  SHA-256 against the release's `SHA256SUMS` (`--check` only reports, `--yes` skips
+  the prompt). Interactive commands show a one-line notice at most once a day when
+  a newer release exists; `NETCONVERTER_NO_UPDATE_CHECK=1` turns it off.
+
 ## 0.2.2 — 2026-10-19
 
 - **Validate and optimize downloads keep the result.** `download` (bridge and app)

@@ -2,6 +2,14 @@
 
 Updated for client 0.1.5, October 1, 2026.
 
+## 0.3.0 status: pending
+
+Not verified for 0.3.0. The client suite passes with mocked servers and a mocked
+GitHub API. Live checks are still open: the server's strict view mode and
+`get_account`, Claude Desktop with the merged config, the Claude Code read rule
+in a real session, MCP progress notifications in each assistant, and
+`netconverter update` against a published release.
+
 ## Client checks
 
 The automated suite includes HTTP protocol mocks for all four model adapters,

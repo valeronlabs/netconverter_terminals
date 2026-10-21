@@ -31,6 +31,35 @@ alone does not prove that an independently configured model runtime is offline;
 choose a local model and review that runtime's network settings separately.
 The terminal neither bundles nor downloads model weights.
 
+## What your AI assistant can call
+
+The bridge offers its local tools (`submit_file`, `job_status`, `wait_for_job`,
+`account`, `download`) and proxies NetConverter's remote tools only from a fixed
+client-side allowlist of read tools. A tool the server adds later is not offered
+until a client release lists it, and a remote tool named `submit_*` is never
+proxied. `netconverter mcp --strict` (or `NETCONVERTER_MCP_STRICT=1`) narrows the
+remote tools to the strict-view set (job list and selection, account, search and
+fetch, knowledge base, vendor capabilities, job brief, evidence, report), whatever
+the server advertises; under the server's strict view mode, names in results
+arrive as `<name:…>` tokens. `account` returns only tier, job types, rate limit,
+daily quota, auth kind and client version facts: no tokens, e-mail addresses, key
+hints or tenant IDs. `wait_for_job` progress messages carry only an allowlisted
+status, stage and percentage.
+
+### Keep the assistant out of the files
+
+The bridge uploads a configuration by **path**: it reads the file itself and sends
+it to NetConverter, so the assistant never needs the file's text. An assistant
+with its own file tools could still open the file and place its contents in the
+model conversation. For Claude Code, `netconverter connect claude-code` therefore
+offers (default yes) a deny rule `Read(//<folder>/**)` in the user-scope
+`~/.claude/settings.json` (`//` is Claude Code's absolute-path form), merged with
+your existing `permissions.deny` entries after a `.bak` copy. It also keeps
+Claude Code from reading the reports the bridge downloads into that folder; open
+those yourself. The rule governs Claude Code's file-read tools. It does not stop
+a shell command you approve. Other assistants, including Claude Desktop with a
+file-access extension, need their own settings; review what you allow.
+
 ## Tools and files
 
 Models request one allowlisted operation. They receive no shell, unrestricted
@@ -63,6 +92,18 @@ The local MCP bridge appends one metadata line per tool call to
 `.netconverter/bridge.jsonl` (time, assistant name, tool, relative path, SHA-256,
 byte count, job id, vendors, status) so the app can show `/activity`. It never
 records configuration text, tool results or credentials, and keeps the newest 500 lines.
+
+`netconverter update` and the daily update check contact only the public GitHub
+API for `valeronlabs/netconverter_terminals` (and GitHub's release download hosts),
+with no NetConverter credential. The request carries a `netconverter-cli/<version>`
+User-Agent. The check stores the latest version and check times in
+`update-check.json` in your user cache folder (`~/Library/Caches/netconverter` on
+macOS), never in the workspace. `NETCONVERTER_NO_UPDATE_CHECK=1` turns the daily
+check off; `netconverter mcp` never prints the notice. Its `account` tool reads
+the same cache and, when the cache is more than a day old, makes the same check
+with a 3-second timeout. An update installs only a wheel whose SHA-256
+matches the release's `SHA256SUMS`. Both files come from the same release, so
+this detects a corrupted or swapped download, not a compromised release.
 
 Production uses HTTPS with certificate verification. The client rejects plain
 HTTP except explicit loopback addresses for development, ignores environment

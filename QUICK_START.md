@@ -10,12 +10,12 @@ brew install uv                      # if `uv --version` fails
 uv python install 3.12
 ```
 
-Download `netconverter_cli-0.2.2-py3-none-any.whl` and `SHA256SUMS` from the
+Download `netconverter_cli-0.3.0-py3-none-any.whl` and `SHA256SUMS` from the
 release page, then:
 
 ```sh
 shasum -a 256 -c SHA256SUMS          # stop if this fails
-uv tool install --python 3.12 ./netconverter_cli-0.2.2-py3-none-any.whl
+uv tool install --python 3.12 ./netconverter_cli-0.3.0-py3-none-any.whl
 uv tool update-shell                 # then open a new Terminal window
 netconverter --help
 ```
@@ -91,9 +91,13 @@ deterministic checks, not by AI.
 ```sh
 netconverter connect                 # which assistants are already connected
 netconverter connect claude-code     # shows the change, asks, then applies
+netconverter connect claude-desktop  # Claude Desktop: merges its config file, keeps a .bak
 ```
 
-Or `/connect` inside the app. Then ask your assistant to validate or convert a file
+Or `/connect` inside the app. For Claude Code, `connect` then offers a second
+change (Enter accepts): a `Read(//…/**)` deny rule for this folder in
+`~/.claude/settings.json`, so Claude Code hands files to the bridge by path instead
+of reading them itself. Restart Claude Code or Claude Desktop afterwards. Then ask your assistant to validate or convert a file
 by name. `/activity` shows each call the bridge handled: time, assistant, file,
 size, SHA-256 and job ID — never content.
 
@@ -102,7 +106,11 @@ size, SHA-256 and job ID — never content.
 - Quit with `Ctrl+Q`; run `netconverter` in the same folder to continue.
   `/jobs` lists your jobs; `/resume JOB_ID` follows one. An interrupted submit is
   retried by `/resume` with the same idempotency key, so it is not duplicated.
-- Update: verify the new wheel, then `uv tool install --force ./netconverter_cli-….whl`.
+- Update: `netconverter update` downloads the latest release's wheel and
+  `SHA256SUMS`, checks the hash and runs `uv tool install --force` after you confirm
+  (`--check` only reports). Interactive commands mention a new release at most once
+  a day; `NETCONVERTER_NO_UPDATE_CHECK=1` turns that off. Manual route: verify the
+  new wheel, then `uv tool install --force ./netconverter_cli-….whl`.
 - Remove: `uv tool uninstall netconverter-cli`. Configs, outputs, Keychain entries
   and `.netconverter/` folders stay until you delete them; `netconverter logout --all`
   removes the saved sign-in and key.

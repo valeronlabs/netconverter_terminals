@@ -61,7 +61,7 @@ REMOTE_TOOLS_DEFAULT = frozenset({
     "list_objects_with_attribute", "list_rules_matching", "query_ir", "search",
     "select_job", "simulate_flow", "vendor_capability_lookup",
 })
-# Strict view mode (server decision 86): summaries with names as <name:…> tokens.
+# The server's strict view mode: summaries with names as <name:…> tokens.
 # `netconverter mcp --strict` proxies only these, whatever the server advertises.
 REMOTE_TOOLS_STRICT = frozenset({
     "list_jobs", "select_job", "get_account", "search", "fetch", "kb_search", "kb_explain",

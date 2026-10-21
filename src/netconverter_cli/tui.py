@@ -118,7 +118,7 @@ class Terminal(App):
                 ('/activity', 'What your AI assistant did here'),
                 ('/help', 'Every command')]
         self.write(card('Start', Group(commands_table(rows), Text(''),
-                                       literal('Your AI can drive this too: /connect wires Claude Code, Cursor, '
+                                       literal('Your AI can drive this too: /connect wires Claude Code, Claude Desktop, Cursor, '
                                                'VS Code or Codex to this folder. Configurations go straight to '
                                                'NetConverter; the AI sees paths and summaries.', MUTED))))
 

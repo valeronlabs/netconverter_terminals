@@ -91,7 +91,7 @@ HELP_SECTIONS = [
     ]),
     ('Your AI', [
         ('/activity', 'What your AI assistant did through the bridge'),
-        ('/connect', 'Wire Claude Code, Cursor, VS Code or Codex to this folder'),
+        ('/connect', 'Wire Claude Code or Desktop, Cursor, VS Code or Codex here'),
         ('/model', 'Connect a model for plain-language questions here'),
     ]),
     ('Session', [
