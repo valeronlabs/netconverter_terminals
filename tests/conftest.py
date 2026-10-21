@@ -11,5 +11,12 @@ def _no_real_sign_in(request, monkeypatch):
     from netconverter_cli import cli
 
     monkeypatch.delenv("NETCONVERTER_AUTH", raising=False)
+    monkeypatch.delenv("NETCONVERTER_MCP_STRICT", raising=False)
+    # No test reaches GitHub or the developer's real update cache.
+    from netconverter_cli import update
+
+    monkeypatch.setenv("NETCONVERTER_NO_UPDATE_CHECK", "1")
+    cache = request.getfixturevalue("tmp_path_factory").mktemp("nc-cache")
+    monkeypatch.setattr(update, "cache_dir", lambda: cache)
     if "vault" not in request.fixturenames:
         monkeypatch.setattr(cli, "_clerk_session", lambda: None)

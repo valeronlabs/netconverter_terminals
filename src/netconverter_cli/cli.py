@@ -220,7 +220,10 @@ def run_connect(args):
 
 
 # Account commands work from anywhere; everything else works on a workspace folder.
-ACCOUNT_COMMANDS = frozenset({"login", "logout", "whoami"})
+ACCOUNT_COMMANDS = frozenset({"login", "logout", "whoami", "update"})
+# No passive update notice: the MCP server's stdout is the protocol stream, and
+# `update` reports versions itself.
+NO_UPDATE_NOTICE = frozenset({"mcp", "update"})
 
 
 def workspace_settings(args) -> dict:
@@ -271,6 +274,9 @@ def parser():
     connect.add_argument("client", nargs="?", choices=["claude-code", "cursor", "vscode", "codex"])
     connect.add_argument("--print", action="store_true", dest="print_only", help="show the change without applying it")
     connect.add_argument("--yes", action="store_true", help="apply without asking (scripts)")
+    update = subs.add_parser("update", help="install the latest verified release from GitHub")
+    update.add_argument("--check", action="store_true", help="only report whether a newer release exists")
+    update.add_argument("--yes", action="store_true", help="install without asking")
     subs.add_parser("capabilities", help="vendors, conversion paths and limits for your credential")
     subs.add_parser("setup")
     subs.add_parser("jobs")
@@ -297,6 +303,14 @@ def parser():
 
 def main(argv=None):
     args = parser().parse_args(argv)
+    if args.command == "update":
+        from . import update
+
+        raise SystemExit(update.run(args))
+    if args.command not in NO_UPDATE_NOTICE:
+        from . import update
+
+        update.notify()  # stderr, once a day, never blocks or fails the command
     settings = workspace_settings(args)
     saved_server = settings.get("server")
     if not args.server and saved_server and not workspace_server_trusted(saved_server):
