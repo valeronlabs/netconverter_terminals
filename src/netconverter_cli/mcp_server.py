@@ -17,10 +17,11 @@ import hashlib
 import json
 import re
 import sys
+import time
 import uuid
 from pathlib import Path
 
-from . import __version__, activity
+from . import __version__, activity, update
 from .api import APIError, Client, ExternalClient
 from .backend import EXTERNAL_MAX_BYTES, detect_profile, download_external, submit_external
 from .clerk import ClerkError
@@ -32,6 +33,15 @@ from .workspace import MAX_CONFIG_BYTES, Workspace, WorkspaceError
 PROTOCOL_VERSIONS = ("2025-11-25", "2025-06-18", "2025-03-26", "2024-11-05")
 SERVER_NAME = "netconverter-local"
 JOB_TYPES = ("convert", "validate", "optimize")
+JOB_TYPE_ALIASES = {"analyze": "validate"}  # as `netconverter analyze` maps it
+PENDING = frozenset({"queued", "processing", "running", "unknown"})
+WAIT_MAX_S = 600
+WAIT_DEFAULT_S = 300
+# Pipeline stage names a status may report; anything else is left out.
+STAGES = frozenset({"queued", "initializing", "parsing", "extracting", "mapping", "translating",
+                    "serializing", "validating", "validate", "reporting", "complete", "completed"})
+AUTH_KINDS = frozenset({"api_key", "clerk_oauth"})
+_TIER = re.compile(r"[a-z][a-z0-9_]{0,29}\Z")
 _VENDOR = re.compile(r"[a-z0-9_]{2,40}\Z")
 _JOB_ID = re.compile(r"[A-Za-z0-9_-]{1,80}\Z")
 _RESERVED_OPTIONS = frozenset(
@@ -90,7 +100,8 @@ LOCAL_TOOLS = [
                 "path": {"type": "string", "description": "Configuration file path inside the workspace folder."},
                 "source_vendor": {"type": "string", "description": "Source vendor code, e.g. cisco_asa, palo_alto_set, fortinet."},
                 "target_vendor": {"type": "string", "description": "Target vendor code; required for convert."},
-                "job_type": {"type": "string", "enum": list(JOB_TYPES), "default": "convert"},
+                "job_type": {"type": "string", "enum": [*JOB_TYPES, *JOB_TYPE_ALIASES], "default": "convert",
+                             "description": "analyze is an alias of validate."},
                 "options": {"type": "object", "description": "Explicit job options (no configuration text).", "additionalProperties": True},
             },
             "required": ["path", "source_vendor"],
@@ -106,6 +117,32 @@ LOCAL_TOOLS = [
             "required": ["job_id"],
             "additionalProperties": False,
         },
+    },
+    {
+        "name": "wait_for_job",
+        "description": (
+            "Wait for a NetConverter job to leave queued/running, polling with backoff for at most "
+            "timeout_s seconds (max 600). Returns the job_status summary plus waited_s and timed_out; "
+            "call it again if timed_out is true." + _DATA_NOTE
+        ),
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "job_id": {"type": "string"},
+                "timeout_s": {"type": "integer", "minimum": 0, "maximum": WAIT_MAX_S, "default": WAIT_DEFAULT_S},
+            },
+            "required": ["job_id"],
+            "additionalProperties": False,
+        },
+    },
+    {
+        "name": "account",
+        "description": (
+            "Your NetConverter account as this bridge sees it: tier, job types allowed, rate limit, "
+            "daily quota, auth kind, the client version and whether a client update is available. "
+            "No tokens or e-mail addresses." + _DATA_NOTE
+        ),
+        "inputSchema": {"type": "object", "properties": {}, "additionalProperties": False},
     },
     {
         "name": "download",
@@ -174,6 +211,8 @@ class Bridge:
         self._transport = transport
         self._profile: tuple[str, frozenset] | None = None
         self._remote_names: dict[str, str] = {}
+        self.progress = None  # set by the stdio server while a call carries a progressToken
+        self._sleep, self._clock = time.sleep, time.monotonic
         self.client_name = ""  # the AI client's own name from initialize, for the activity log
 
     # -- REST clients ------------------------------------------------------
@@ -208,8 +247,10 @@ class Bridge:
         if not isinstance(path, str) or not path:
             raise ToolFailure("invalid_arguments", "path is required")
         job_type = job_type or "convert"
+        job_type = JOB_TYPE_ALIASES.get(job_type, job_type) if isinstance(job_type, str) else job_type
         if job_type not in JOB_TYPES:
-            raise ToolFailure("invalid_arguments", f"job_type must be one of {', '.join(JOB_TYPES)}")
+            raise ToolFailure("invalid_arguments",
+                              f"job_type must be one of {', '.join([*JOB_TYPES, *JOB_TYPE_ALIASES])}")
         if not isinstance(source_vendor, str) or not _VENDOR.fullmatch(source_vendor):
             raise ToolFailure("invalid_arguments", "source_vendor must be a vendor code such as cisco_asa")
         if target_vendor is not None and (not isinstance(target_vendor, str) or not _VENDOR.fullmatch(target_vendor)):
@@ -278,7 +319,7 @@ class Bridge:
         finally:
             client.close()
 
-    def job_status(self, job_id=None):
+    def _job_summary(self, job_id) -> dict:
         if not isinstance(job_id, str) or not _JOB_ID.fullmatch(job_id):
             raise ToolFailure("invalid_arguments", "job_id must be a NetConverter job id")
         kind, _ = self.profile()
@@ -289,22 +330,102 @@ class Bridge:
             raise _api_failure(exc) from None
         finally:
             client.close()
+        if not isinstance(data, dict):
+            raise ToolFailure("invalid_response", "NetConverter returned no job status")
         out = {"job_id": job_id, "status": _status(data.get("status"))}
         verdict = data.get("translation_status") or data.get("verdict")
         if verdict:
             out["verdict"] = _status(verdict)
         if isinstance(data.get("review_required"), bool):
             out["review_required"] = data["review_required"]
-        progress = data.get("progress")
+        progress, stage = data.get("progress"), data.get("stage")
+        if isinstance(progress, dict):  # {"stage": ..., "percentage": ...}
+            stage = stage or progress.get("stage")
+            progress = progress.get("percentage")
         if type(progress) is int and 0 <= progress <= 100:
             out["progress"] = progress
+        if isinstance(stage, str) and stage in STAGES:
+            out["stage"] = stage
         for field in ("blocking_reasons", "review_reasons"):
             if isinstance(data.get(field), list):
                 out[field.replace("reasons", "reason_count")] = len(data[field])
         for field in ("source_vendor", "target_vendor"):
             if isinstance(data.get(field), str) and _VENDOR.fullmatch(data[field]):
                 out[field] = data[field]
+        return out
+
+    def job_status(self, job_id=None):
+        out = self._job_summary(job_id)
         self._log("job_status", job_id=job_id, status=out.get("verdict") or out["status"])
+        return out
+
+    def wait_for_job(self, job_id=None, timeout_s=WAIT_DEFAULT_S):
+        if isinstance(timeout_s, bool) or not isinstance(timeout_s, (int, float)) or not 0 <= timeout_s <= WAIT_MAX_S:
+            raise ToolFailure("invalid_arguments", f"timeout_s must be between 0 and {WAIT_MAX_S} seconds")
+        start = self._clock()
+        deadline = start + timeout_s
+        delay, polls = 2.0, 0
+        while True:
+            out = self._job_summary(job_id)
+            polls += 1
+            if self.progress is not None:
+                parts = [f"status: {out['status']}"]
+                if "stage" in out:
+                    parts.append(f"stage: {out['stage']}")
+                if "progress" in out:
+                    parts.append(f"{out['progress']}%")
+                self.progress(polls, " · ".join(parts))
+            remaining = deadline - self._clock()
+            if out["status"] not in PENDING or remaining <= 0:
+                break
+            self._sleep(min(delay, remaining))
+            delay = min(delay * 1.5, 15.0)
+        out["waited_s"] = round(max(0.0, self._clock() - start), 1)
+        out["timed_out"] = out["status"] in PENDING
+        self._log("wait_for_job", job_id=job_id, status=out.get("verdict") or out["status"])
+        return out
+
+    def account(self):
+        kind, job_types = self.profile()
+        out = {"profile": "terminal_quick" if kind == "quick" else "full_api",
+               "job_types": sorted(job_types), "rate_limit_per_min": None, "daily_quota": None,
+               "auth_kind": "api_key" if kind == "quick" else "unknown"}
+        if kind == "quick":
+            out["tier"] = "terminal_quick"
+        else:
+            client = self._client(ExternalClient)
+            try:
+                me = client.me()
+                try:
+                    caps = client.capabilities()
+                except APIError:
+                    caps = {}  # a server without /capabilities still answers /me
+            except APIError as exc:
+                raise _api_failure(exc) from None
+            finally:
+                client.close()
+            me = me if isinstance(me, dict) else {}
+            caps = caps if isinstance(caps, dict) else {}
+            principal = me.get("principal") if isinstance(me.get("principal"), dict) else {}
+            if principal.get("kind") in AUTH_KINDS:
+                out["auth_kind"] = principal["kind"]
+            key = me.get("key") if isinstance(me.get("key"), dict) else {}
+            for field, name in (("rate_limit_per_min", "rate_limit_per_min"), ("daily_quota", "daily_quota")):
+                value = key.get(field, me.get(field))
+                if type(value) is int and value >= 0:
+                    out[name] = value
+            tier = me.get("tier") or caps.get("tier")
+            if isinstance(tier, str) and _TIER.fullmatch(tier):
+                out["tier"] = tier
+            else:
+                out["tier"] = "trial" if caps.get("trial") is True else "standard"
+            advertised = caps.get("job_types")
+            if isinstance(advertised, list):
+                out["job_types"] = sorted({t for t in advertised if t in JOB_TYPES} & set(job_types)) or out["job_types"]
+        state = update.status()
+        out.update(client_version=__version__, update_available=state["update_available"],
+                   latest_version=state["latest"], strict_mode=self.strict)
+        self._log("account")
         return out
 
     def download(self, job_id=None, dest_dir="."):
@@ -419,6 +540,7 @@ def _error_result(code: str, message: str, **extra) -> dict:
 class StdioServer:
     def __init__(self, bridge: Bridge):
         self.bridge = bridge
+        self._out = None  # the protocol stream while serve() runs, for progress notifications
 
     def handle(self, message):
         try:
@@ -459,15 +581,26 @@ class StdioServer:
             name, arguments = params.get("name"), params.get("arguments") or {}
             if not isinstance(name, str) or not isinstance(arguments, dict):
                 return _rpc_error(request_id, -32602, "tools/call needs a name and an arguments object")
+            meta = params.get("_meta") if isinstance(params.get("_meta"), dict) else {}
+            token = meta.get("progressToken")
+            if self._out is not None and name in LOCAL_NAMES and (
+                    (isinstance(token, str) and 0 < len(token) <= 200)
+                    or (type(token) is int)):
+                self.bridge.progress = lambda count, message: self._write(self._out, {
+                    "jsonrpc": "2.0", "method": "notifications/progress",
+                    "params": {"progressToken": token, "progress": count, "message": message}})
             try:
                 result = self.bridge.call(name, arguments)
             except Exception:
                 result = _error_result("internal_error", "The local bridge failed; no configuration content was returned")
+            finally:
+                self.bridge.progress = None
         else:
             return _rpc_error(request_id, -32601, f"Method not found: {method[:80]}")
         return {"jsonrpc": "2.0", "id": request_id, "result": result}
 
     def serve(self, instream, outstream) -> None:
+        self._out = outstream
         for raw in instream:
             line = raw.strip()
             if not line:
