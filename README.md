@@ -63,6 +63,9 @@ Full walkthrough: [Quick start](QUICK_START.md).
 
 ## Use it from your AI
 
+Step-by-step guides for every assistant (Claude, ChatGPT, Cursor, Gemini CLI, Codex …):
+[docs/connect](docs/connect/README.md).
+
 ```sh
 netconverter connect claude-code    # or claude-desktop, cursor, vscode, codex, gemini, windsurf, lmstudio
 netconverter connect --all          # every assistant found on this computer
