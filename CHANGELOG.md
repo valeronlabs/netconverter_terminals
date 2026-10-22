@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.4.1 — 2026-10-22
 
 - **First-run setup honours the Clerk sign-in (#6).** `NETCONVERTER_API_KEY` in the
   environment no longer skips the sign-in choice and is never copied into the OS keyring.
