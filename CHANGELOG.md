@@ -1,5 +1,14 @@
 # Changelog
 
+## Unreleased
+
+- **First-run setup honours the Clerk sign-in (#6).** `NETCONVERTER_API_KEY` in the
+  environment no longer skips the sign-in choice and is never copied into the OS keyring.
+  `whoami` reports `api_key_stored` for the keyring only and adds `api_key_in_environment`.
+- **Sign-in errors show Clerk's full reason.** The OAuth error description was cut at
+  200 characters, hiding the cause sentence (e.g. a missing `device_code` grant, #684).
+- **`whoami` shows one label per organization** (name, else slug) instead of the raw `org_...` id.
+
 ## 0.4.0 — 2026-10-21
 
 - **On PyPI as `netconverter-cli`.** `uv tool install --python 3.12 netconverter-cli`

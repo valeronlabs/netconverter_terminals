@@ -106,7 +106,7 @@ def test_deleted_working_folder_gives_a_clear_message(tmp_path, monkeypatch, cap
     gone.mkdir()
     monkeypatch.chdir(gone)
     gone.rmdir()
-    monkeypatch.setattr(cli, 'get_secret', Mock(return_value=''))
+    monkeypatch.setattr(cli, 'load_secret', Mock(return_value=''))
     monkeypatch.setattr(cli, '_clerk_session', Mock(return_value=None))
     cli.main(['whoami'])  # account commands need no workspace
     assert '"api_key_stored": false' in capsys.readouterr().out

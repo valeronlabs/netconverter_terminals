@@ -398,3 +398,18 @@ def test_every_token_request_names_the_mcp_resource():
 
     src = inspect.getsource(clerk)
     assert src.count('"resource": RESOURCE') >= 4
+
+
+def test_oauth_error_keeps_the_cause_sentence_of_a_long_description():
+    """#684: Clerk's cause was cut off at 200 characters."""
+    from netconverter_cli.clerk import OAuthError
+    cause = "This OAuth application does not have the 'urn:ietf:params:oauth:grant-type:device_code' grant."
+    exc = OAuthError("unauthorized_client", {"error_description": "x" * 230 + " " + cause})
+    assert cause in str(exc)
+
+
+def test_profile_summary_shows_the_org_name_not_its_raw_id():
+    from netconverter_cli.clerk import profile_summary
+    info = {"org_id": "org_39VBTisVKmTSYHZamQtGhl8y9rS", "org_slug": "nexthopllc", "org_name": "NextHop LLC"}
+    assert profile_summary(info)["organizations"] == ["NextHop LLC"]
+    assert profile_summary({"org_id": "org_X"})["organizations"] == ["org_X"]

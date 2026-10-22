@@ -20,3 +20,12 @@ def _no_real_sign_in(request, monkeypatch):
     monkeypatch.setattr(update, "cache_dir", lambda: cache)
     if "vault" not in request.fixturenames:
         monkeypatch.setattr(cli, "_clerk_session", lambda: None)
+
+
+@pytest.fixture(autouse=True)
+def _no_real_stored_key(request, monkeypatch):
+    """First-run setup never sees an API key stored in the developer's real keyring."""
+    if "vault" not in request.fixturenames:
+        from netconverter_cli import setup
+
+        monkeypatch.setattr(setup, "load_secret", lambda name: "")

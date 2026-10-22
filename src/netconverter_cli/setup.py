@@ -4,7 +4,7 @@ import json
 from pathlib import Path
 from .api import Client, DEFAULT_BASE
 from .backend import open_client
-from .credentials import get_secret, save_secret
+from .credentials import get_secret, load_secret, save_secret
 from .providers import Provider, ProviderError
 from .workspace import Workspace, WorkspaceError
 
@@ -85,7 +85,8 @@ class AccountSignIn:
 
 def connect_credential(server, signin, ask, secret):
     """A stored key, the existing sign-in, or the user's choice of signing in or pasting a key."""
-    saved = get_secret(account(server), prompt=False)
+    # Keyring only: a key from the environment must neither skip the sign-in nor be copied into the keyring.
+    saved = load_secret(account(server))
     if not saved and signin.allowed(server):
         session = signin.session()
         if session is not None:

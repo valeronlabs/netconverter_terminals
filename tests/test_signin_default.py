@@ -121,7 +121,7 @@ def _setup_mocks(monkeypatch):
     client = Mock()
     factory = Mock(return_value=(client, "external"))
     monkeypatch.setattr(setup, "open_client", factory)
-    monkeypatch.setattr(setup, "get_secret", lambda name, prompt=True: "")
+    monkeypatch.setattr(setup, "load_secret", lambda name: "")
     save = Mock(return_value=True)
     monkeypatch.setattr(setup, "save_secret", save)
     return client, factory, save
@@ -172,7 +172,7 @@ def test_setup_never_offers_sign_in_to_an_untrusted_server(tmp_path, monkeypatch
 def test_plain_netconverter_in_a_new_folder_reaches_the_app_signed_in(tmp_path, monkeypatch):
     session = FakeSession()
     monkeypatch.setattr(cli, "_clerk_session", lambda: session)
-    monkeypatch.setattr(setup, "get_secret", lambda name, prompt=True: "")
+    monkeypatch.setattr(setup, "load_secret", lambda name: "")
     monkeypatch.setattr(setup, "save_secret", Mock(return_value=True))
     client = Mock()
     factory = Mock(return_value=(client, "external"))
@@ -186,3 +186,21 @@ def test_plain_netconverter_in_a_new_folder_reaches_the_app_signed_in(tmp_path, 
     cli.main(["--workspace", str(tmp_path)])
     factory.assert_called_once_with(session, PROD)
     ran.assert_called_once()
+
+
+def test_env_key_neither_skips_the_sign_in_nor_is_copied_to_the_keyring(monkeypatch):
+    """#6: NETCONVERTER_API_KEY in the environment is not a stored key."""
+    session = FakeSession()
+    monkeypatch.setenv("NETCONVERTER_API_KEY", "nck_FROM_ENV")
+    monkeypatch.setattr(setup, "load_secret", lambda name: "")
+    monkeypatch.setattr(setup, "get_secret", lambda *a, **k: pytest.fail("env key must not be read"))
+    signin = Mock(allowed=Mock(return_value=True), session=Mock(return_value=session))
+    assert setup.connect_credential(PROD, signin, ask=Mock(), secret=Mock()) is session
+
+
+def test_blank_key_prompt_does_not_adopt_the_env_key(monkeypatch):
+    monkeypatch.setenv("NETCONVERTER_API_KEY", "nck_FROM_ENV")
+    monkeypatch.setattr(setup, "load_secret", lambda name: "")
+    signin = Mock(allowed=Mock(return_value=False))
+    with pytest.raises(ValueError):
+        setup.connect_credential(PROD, signin, ask=Mock(), secret=lambda prompt: "")

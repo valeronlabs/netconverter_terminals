@@ -8,7 +8,7 @@ import sys
 from pathlib import Path
 from .api import Client, DEFAULT_BASE, APIError
 from .backend import detect_profile, open_client
-from .credentials import get_secret, keyring_available, save_secret
+from .credentials import get_secret, keyring_available, load_secret, save_secret
 from .controller import Controller
 from .providers import Provider, ProviderError
 from .commands import execute
@@ -139,7 +139,8 @@ def logout(args):
 def whoami(args):
     from .clerk import ClerkError, profile_summary
 
-    out = {"server": args.server, "api_key_stored": bool(get_secret(account(args.server), prompt=False))}
+    out = {"server": args.server, "api_key_stored": bool(load_secret(account(args.server))),
+           "api_key_in_environment": bool(os.environ.get("NETCONVERTER_API_KEY"))}
     session = _clerk_session()
     if session is None:
         out["clerk"] = None

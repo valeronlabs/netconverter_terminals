@@ -180,7 +180,8 @@ class OAuthError(ClerkError):
     def __init__(self, error: str, body=None):
         description = ""
         if isinstance(body, dict):
-            description = _safe_text(body.get("error_description"))
+            # Clerk puts the cause in the last sentence; keep the whole description, not a cut-off head.
+            description = _safe_text(body.get("error_description"), 600)
         super().__init__(
             f"Sign-in refused: {error}" + (f" ({description})" if description else "")
         )
@@ -567,9 +568,11 @@ def profile_summary(info: dict) -> dict:
         if isinstance(info.get(key), str) and info[key]:
             out[key] = _safe_text(info[key], 120)
     orgs = []
-    for key in ("org_id", "org_slug", "org_name"):
+    # One label for the active organization: its name, else its slug; the raw id only as a last resort.
+    for key in ("org_name", "org_slug", "org_id"):
         if isinstance(info.get(key), str) and info[key]:
             orgs.append(_safe_text(info[key], 120))
+            break
     for org in info.get("organizations") or info.get("orgs") or []:
         if isinstance(org, dict):
             label = org.get("name") or org.get("slug") or org.get("id")
