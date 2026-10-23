@@ -111,7 +111,7 @@ delays a command; its result is cached in your user cache folder.
 | `submit_file(path, source_vendor, target_vendor?, job_type?, options?)` | `job_id`, `status`, `sha256`, `bytes`. `job_type`: `convert`, `validate`, `optimize`, or `analyze` (= validate) |
 | `job_status(job_id)` | Status, verdict, review flag, progress and stage when sent, reason counts, vendors |
 | `wait_for_job(job_id, timeout_s=45)` | The `job_status` summary plus `waited_s` and `timed_out` (plus `next` when still running: call it again); polls 2 s, ×1.5, up to 15 s apart, at most 600 s. The default stays under the 60 s tool timeout of Codex and OpenClaw; pass a larger `timeout_s` only when the client allows it. Sends MCP progress notifications when the call has a progress token |
-| `account()` | `tier`, `job_types`, `rate_limit_per_min`, `daily_quota`, `auth_kind`, `profile`, `client_version`, `update_available`, `latest_version`, `strict_mode`, `credential_source` (`clerk_session`, `api_key_environment`, `api_key_stored` or `none`; the one credential REST and the remote tools share) |
+| `account()` | `tier`, `job_types`, `rate_limit_per_min`, `daily_quota`, `auth_kind`, `profile`, `client_version`, `update_available`, `latest_version`, `strict_mode` (the `--strict` flag), `view_mode` (the view the server applies to this session, from `get_account`), `strict_enforced_by` (`server` when that view is strict, `client` while the bridge enforces it locally), `credential_source` (`clerk_session`, `api_key_environment`, `api_key_stored` or `none`; the one credential REST and the remote tools share) |
 | `download(job_id, dest_dir=".")` | Saved file names, sizes and SHA-256 |
 
 Remote NetConverter tools are proxied only from a fixed allowlist, and never a
@@ -126,6 +126,13 @@ Remote NetConverter tools are proxied only from a fixed allowlist, and never a
 With `--strict`: `list_jobs`, `select_job`, `get_account`, `search`, `fetch`,
 `kb_search`, `kb_explain`, `vendor_capability_lookup`, `get_job_brief`,
 `get_evidence`, `get_report`. A listed tool appears only if the server offers it.
+`--strict` also asks the server for its strict view on every request (`X-NetConverter-View: strict`;
+the server may only lower the grant's view, never raise it) and reads the view in force from
+`get_account`. Until the server applies it, the bridge enforces strict locally: it refuses
+`get_evidence section=unparsed_lines`, `get_job_brief focus=target` and any `fetch` that is not
+`kb:<doc_id>` before any network call, masks every IPv4/IPv6 address and prefix in remote results
+as `<ip>`/`<cidr>`, and says so once on stderr. Names in summaries are tokenised only by the
+server's strict view; `account` reports which side is enforcing.
 
 Global options go before the subcommand: `netconverter --workspace DIR --server URL …`.
 Environment: `NETCONVERTER_URL`, `NETCONVERTER_PROVIDER`, `NETCONVERTER_MODEL`,

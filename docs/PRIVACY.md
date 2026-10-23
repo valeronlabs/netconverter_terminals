@@ -40,10 +40,16 @@ until a client release lists it, and a remote tool named `submit_*` is never
 proxied. `netconverter mcp --strict` (or `NETCONVERTER_MCP_STRICT=1`) narrows the
 remote tools to the strict-view set (job list and selection, account, search and
 fetch, knowledge base, vendor capabilities, job brief, evidence, report), whatever
-the server advertises; under the server's strict view mode, names in results
-arrive as `<name:…>` tokens. `account` returns only tier, job types, rate limit,
-daily quota, auth kind and client version facts: no tokens, e-mail addresses, key
-hints or tenant IDs. `wait_for_job` progress messages carry only an allowlisted
+the server advertises, and asks the server for its strict view on every request
+(`X-NetConverter-View: strict`; a session can only lower the grant's view). Under
+the server's strict view mode, names in results arrive as `<name:…>` tokens. While
+the server is not applying it, the bridge refuses the configuration-content calls
+(`unparsed_lines`, `focus=target`, non-`kb:` fetch) and masks every address in
+remote results as `<ip>`/`<cidr>` itself; names in summaries are not tokenised
+locally, and `account.strict_enforced_by` says which side is enforcing. `account`
+returns only tier, job types, rate limit, daily quota, auth kind, credential source,
+view mode and client version facts: no tokens, e-mail addresses, key hints or
+tenant IDs. `wait_for_job` progress messages carry only an allowlisted
 status, stage and percentage.
 
 ### Keep the assistant out of the files

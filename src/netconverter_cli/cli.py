@@ -221,12 +221,14 @@ def run_mcp(args):
     rest, remote_credential, source, notes = choose_mcp_credential(args.auth, args.server, mcp_url)
     for note in notes:
         print(f"netconverter mcp: {note}", file=sys.stderr)
+    strict = bool(getattr(args, "strict", False))
     remote = None
     if remote_credential is not None and not args.no_remote:
-        remote = RemoteMCP(mcp_url, remote_credential, client_version=__version__)
+        # --strict asks the server for its strict view on every request (#15).
+        remote = RemoteMCP(mcp_url, remote_credential, client_version=__version__,
+                           **({"view_mode": "strict"} if strict else {}))
     try:
-        run_stdio(Bridge(args.workspace, args.server, rest, remote, strict=getattr(args, "strict", False),
-                         credential_source=source))
+        run_stdio(Bridge(args.workspace, args.server, rest, remote, strict=strict, credential_source=source))
     finally:
         if remote:
             remote.close()

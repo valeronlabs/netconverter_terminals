@@ -17,6 +17,10 @@ from .clerk import ClerkError
 DEFAULT_MCP_URL = "https://api.netconverter.ai/mcp/v1/"
 CLIENT_PROTOCOL = "2025-06-18"
 MAX_RESPONSE_BYTES = 8 * 1024 * 1024
+# The server's view modes (External MCP access grants). The bridge may ask the
+# server to LOWER the grant's view for this session; it can never raise it.
+VIEW_MODES = ("default", "strict", "full_addresses")
+VIEW_HEADER = "X-NetConverter-View"
 
 
 class RemoteError(RuntimeError):
@@ -30,8 +34,12 @@ def _short(value, limit=300) -> str:
 
 
 class RemoteMCP:
-    def __init__(self, url: str, credential, *, transport=None, client_version="0"):
+    def __init__(self, url: str, credential, *, transport=None, client_version="0", view_mode=None):
         self.url = check_url(url)
+        if view_mode is not None and view_mode not in VIEW_MODES:
+            raise ValueError("Unknown view mode")
+        self.view_mode = view_mode  # requested on every request (#15); the server decides
+        self._account_view: str | None = None
         self.http = httpx.Client(
             timeout=90,
             auth=BearerAuth(as_credential(credential)),
@@ -59,6 +67,8 @@ class RemoteMCP:
             headers["Mcp-Session-Id"] = self.session_id
         if self.protocol:
             headers["MCP-Protocol-Version"] = self.protocol
+        if self.view_mode:
+            headers[VIEW_HEADER] = self.view_mode
         return headers
 
     def _post(self, payload: dict):
@@ -173,3 +183,32 @@ class RemoteMCP:
 
     def call_tool(self, name: str, arguments: dict) -> dict:
         return self.rpc("tools/call", {"name": name, "arguments": arguments})
+
+    def account_view(self) -> str | None:
+        """The view mode the server applies to this session (``get_account.view_mode``), once.
+
+        None when the server does not say (an older server, a refused call).
+        """
+        if self._account_view is None:
+            payload = self.call_tool("get_account", {})
+            self._account_view = _view_mode_of(payload) or ""
+        return self._account_view or None
+
+
+def _view_mode_of(payload) -> str | None:
+    """``data.view_mode`` from a get_account result: structuredContent first, else its JSON text."""
+    candidates = []
+    if isinstance(payload, dict):
+        candidates.append(payload.get("structuredContent"))
+        for item in payload.get("content") or []:
+            if isinstance(item, dict) and isinstance(item.get("text"), str):
+                try:
+                    candidates.append(json.loads(item["text"]))
+                except ValueError:
+                    continue
+    for candidate in candidates:
+        data = candidate.get("data") if isinstance(candidate, dict) else None
+        data = data if isinstance(data, dict) else candidate
+        if isinstance(data, dict) and data.get("view_mode") in VIEW_MODES:
+            return data["view_mode"]
+    return None

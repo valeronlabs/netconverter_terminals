@@ -2,6 +2,15 @@
 
 ## Unreleased
 
+- **`mcp --strict` requests and verifies the server's strict view (#15).** The bridge sends
+  `X-NetConverter-View: strict` on every remote request (the server may only lower the
+  grant's view) and reads the view in force from `get_account`; `account` now reports
+  `view_mode` and `strict_enforced_by` (`server`/`client`) next to the `strict_mode` flag.
+  Until the server applies the strict view for the account, the bridge enforces it locally:
+  `get_evidence section=unparsed_lines`, `get_job_brief focus=target` and any `fetch` that is
+  not `kb:<doc_id>` are refused before any network call, every IPv4/IPv6 address or prefix in
+  a remote result is masked as `<ip>`/`<cidr>`, and one stderr line says so. Names inside
+  summaries are tokenised only by the server's strict view.
 - **Linux: the bridge finds the keyring when the assistant hides the D-Bus bus (#17).**
   Codex, Cursor CLI and OpenClaw start MCP servers without `DBUS_SESSION_BUS_ADDRESS`, so
   the Clerk sign-in in the Secret Service was invisible and every tool said "not signed

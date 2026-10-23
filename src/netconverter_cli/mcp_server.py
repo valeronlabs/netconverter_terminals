@@ -78,6 +78,55 @@ def remote_allowed(name, allowlist=REMOTE_TOOLS_DEFAULT) -> bool:
     """A remote tool the bridge may list and call. ``submit_*`` never is."""
     return isinstance(name, str) and not name.startswith("submit_") and name in allowlist
 
+
+def strict_refusal(name: str, arguments: dict) -> str | None:
+    """Why the server's strict view refuses this call (mirrored locally, #15), else None.
+
+    Same rules as the server adapter: no configuration content under strict.
+    """
+    args = arguments if isinstance(arguments, dict) else {}
+    if name == "get_job_brief" and str(args.get("focus", "")) == "target":
+        return "focus='target' is not available in strict mode"
+    if name == "get_evidence" and str(args.get("section", "")).strip() == "unparsed_lines":
+        return "section='unparsed_lines' is not available in strict mode"
+    if name == "fetch" and not str(args.get("id", "")).startswith("kb:"):
+        return "only kb:<doc_id> can be fetched in strict mode"
+    return None
+
+
+_HEX4 = r"[0-9A-Fa-f]{1,4}"
+_IPV4 = re.compile(r"(?<!\d)(?:\d{1,3}\.){3}\d{1,3}(?:/\d{1,2})?(?!\d)")
+_IPV6 = re.compile(
+    rf"(?<![0-9A-Fa-f:])(?:(?:{_HEX4}:){{7}}{_HEX4}|(?:{_HEX4}:){{1,7}}:"
+    rf"|(?:{_HEX4}:){{1,6}}:{_HEX4}(?::{_HEX4}){{0,5}}|::(?:{_HEX4}(?::{_HEX4}){{0,6}})?)"
+    r"(?:/\d{1,3})?(?![0-9A-Fa-f:])"
+)
+
+
+def _mask_text(text: str) -> str:
+    def sub(m):
+        return "<cidr>" if "/" in m.group(0) else "<ip>"
+
+    return _IPV6.sub(sub, _IPV4.sub(sub, text))
+
+
+def mask_addresses(value, depth: int = 0):
+    """Every IPv4/IPv6 address or prefix in strings becomes ``<ip>``/``<cidr>`` (#15).
+
+    The server's strict view does this on egress; under ``--strict`` the bridge
+    repeats it on every remote result so a server that is not yet applying the
+    strict view still never hands the model an address.
+    """
+    if depth > 40:
+        return value
+    if isinstance(value, str):
+        return _mask_text(value)
+    if isinstance(value, dict):
+        return {(_mask_text(k) if isinstance(k, str) else k): mask_addresses(v, depth + 1) for k, v in value.items()}
+    if isinstance(value, list):
+        return [mask_addresses(v, depth + 1) for v in value]
+    return value
+
 INSTRUCTIONS = (
     "NetConverter local bridge. To work on a configuration, pass its file PATH "
     "(inside the configured workspace folder) to submit_file. Never paste, quote "
@@ -237,6 +286,8 @@ class Bridge:
         self.server = server
         self.rest_credential = rest_credential
         self.remote = remote
+        self._server_view: str | None = None  # the server's view mode for this session, once known
+        self._view_warned = False
         self._transport = transport
         self._profile: tuple[str, frozenset] | None = None
         self._remote_names: dict[str, str] = {}
@@ -450,9 +501,11 @@ class Bridge:
             if isinstance(advertised, list):
                 out["job_types"] = sorted({t for t in advertised if t in JOB_TYPES} & set(job_types)) or out["job_types"]
         state = update.status()
+        view = self.server_view()
         out.update(client_version=__version__, update_available=state["update_available"],
                    latest_version=state["latest"], strict_mode=self.strict,
-                   credential_source=self.credential_source)
+                   credential_source=self.credential_source, view_mode=view,
+                   strict_enforced_by=None if not self.strict else ("server" if view == "strict" else "client"))
         self._log("account")
         return out
 
@@ -511,6 +564,31 @@ class Bridge:
         finally:
             client.close()
 
+    # -- server view (#15) -------------------------------------------------
+
+    def server_view(self) -> str | None:
+        """The view mode the server applies to this session, from get_account; None if unknown.
+
+        Under ``--strict`` a server that is not applying the strict view gets
+        one stderr line, and the bridge enforces strict locally (see ``call``).
+        """
+        if self.remote is None:
+            return None
+        if self._server_view is None:
+            try:
+                self._server_view = self.remote.account_view() or ""
+            except RemoteError:
+                self._server_view = ""
+        view = self._server_view or None
+        if self.strict and view != "strict" and not self._view_warned:
+            self._view_warned = True
+            print(f"netconverter mcp --strict: the server's view mode for this account is "
+                  f"{view or 'unknown'}, not strict (an administrator sets it on the MCP grant; the "
+                  "strict request is sent on every call). Until the server applies it, this bridge "
+                  "refuses configuration-content calls and masks addresses in every remote result; "
+                  "names in summaries are NOT tokenised locally.", file=sys.stderr)
+        return view
+
     # -- catalogue ---------------------------------------------------------
 
     def list_tools(self) -> list[dict]:
@@ -532,6 +610,8 @@ class Bridge:
                 continue
             self._remote_names[local_name] = name
             tools.append({**tool, "name": local_name})
+        if self.strict:
+            self.server_view()  # learn (and say once) whether the server applies the strict view
         return tools
 
     def call(self, name: str, arguments: dict) -> dict:
@@ -554,10 +634,21 @@ class Bridge:
         remote_name = self._remote_names.get(name)
         if remote_name is None or self.remote is None or not remote_allowed(remote_name, self.remote_allowlist):
             return _error_result("unknown_tool", f"Unknown tool '{name}'; call tools/list")
+        if not self.strict:
+            try:
+                return self.remote.call_tool(remote_name, arguments)  # remote summaries, as-is
+            except RemoteError as exc:
+                return _error_result(re.sub(r"[^a-z0-9_]", "", str(exc.code).lower()) or "remote_error", str(exc))
+        refusal = strict_refusal(remote_name, arguments)
+        if refusal:  # before any network call, whatever view the server applies
+            return _error_result("strict_mode", refusal)
+        self.server_view()
         try:
-            return self.remote.call_tool(remote_name, arguments)  # remote summaries, as-is
+            result = self.remote.call_tool(remote_name, arguments)
         except RemoteError as exc:
-            return _error_result(re.sub(r"[^a-z0-9_]", "", str(exc.code).lower()) or "remote_error", str(exc))
+            return _error_result(re.sub(r"[^a-z0-9_]", "", str(exc.code).lower()) or "remote_error",
+                                 _mask_text(str(exc)))
+        return mask_addresses(result)  # defence in depth: the server's strict view masks too
 
 
 def _error_result(code: str, message: str, **extra) -> dict:
