@@ -1,5 +1,12 @@
 # Changelog
 
+## Unreleased
+
+- **`whoami` never shows an organization's raw id (#685).** An organization with no name
+  and no slug is listed as `(unnamed organization)` instead of its `org_…` id. The active
+  organization and its membership entry are the same organization and show once, with the
+  name if either entry carries one.
+
 ## 0.4.3 — 2026-10-23
 
 - **Move between folders in the terminal app.** `/ls [FOLDER]` (or `/dir`) lists files and

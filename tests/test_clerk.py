@@ -360,7 +360,8 @@ def test_whoami_shows_identity_without_tokens(vault, tmp_path, monkeypatch, caps
     assert "REFRESH_MUST_NOT_PRINT" not in out.out + out.err
     data = json.loads(out.out)
     assert data["clerk"]["email"] == "pilot@example.test"
-    assert data["clerk"]["organizations"] == ["org_synthetic"]
+    assert data["clerk"]["organizations"] == ["(unnamed organization)"]
+    assert "org_synthetic" not in out.out
 
 
 def test_login_defaults_to_key_unless_clerk_is_opted_in(tmp_path, monkeypatch):
@@ -412,4 +413,22 @@ def test_profile_summary_shows_the_org_name_not_its_raw_id():
     from netconverter_cli.clerk import profile_summary
     info = {"org_id": "org_39VBTisVKmTSYHZamQtGhl8y9rS", "org_slug": "nexthopllc", "org_name": "NextHop LLC"}
     assert profile_summary(info)["organizations"] == ["NextHop LLC"]
-    assert profile_summary({"org_id": "org_X"})["organizations"] == ["org_X"]
+    assert profile_summary({"org_id": "org_X"})["organizations"] == ["(unnamed organization)"]
+
+
+def test_profile_summary_unnamed_org_gets_a_label_never_its_raw_id():
+    """#685 B12: an org with no name and no slug shows a label, never org_...; one entry per org."""
+    from netconverter_cli.clerk import profile_summary
+    unnamed = profile_summary({"org_id": "org_synthUnnamed1",
+                               "organizations": [{"id": "org_synthUnnamed1"}]})
+    assert unnamed["organizations"] == ["(unnamed organization)"]
+    assert "org_" not in json.dumps(unnamed)
+    # Same org as active claim and membership entry, with the name only on one side: one label.
+    merged = profile_summary({"org_id": "org_synthA", "org_name": "",
+                              "organizations": [{"id": "org_synthA", "name": "Synthetic A"},
+                                                {"id": "org_synthB", "slug": "synthetic-b"},
+                                                {"name": "Synthetic A"}]})
+    assert merged["organizations"] == ["Synthetic A", "synthetic-b"]
+    # Blank/whitespace names fall through to the slug, then to the label.
+    blank = profile_summary({"organizations": [{"id": "org_synthC", "name": "  ", "slug": ""}]})
+    assert blank["organizations"] == ["(unnamed organization)"]

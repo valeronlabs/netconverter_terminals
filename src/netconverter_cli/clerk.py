@@ -561,25 +561,42 @@ class ClerkSession:
         return self.store.clear()
 
 
+UNNAMED_ORG = "(unnamed organization)"
+
+
 def profile_summary(info: dict) -> dict:
     """Non-secret identity fields for display; never tokens."""
     out = {}
     for key in ("email", "name", "preferred_username"):
         if isinstance(info.get(key), str) and info[key]:
             out[key] = _safe_text(info[key], 120)
-    orgs = []
-    # One label for the active organization: its name, else its slug; the raw id only as a last resort.
-    for key in ("org_name", "org_slug", "org_id"):
-        if isinstance(info.get(key), str) and info[key]:
-            orgs.append(_safe_text(info[key], 120))
-            break
+    # One label per organization: its name, else its slug, else UNNAMED_ORG; never the raw id.
+    # Entries that share an id (the active org and its membership entry) are one organization.
+    orgs: dict = {}
+
+    def add(org_id, name, slug):
+        label = next((v for v in (name, slug) if isinstance(v, str) and v.strip()), None)
+        label = _safe_text(label, 120) if label else None
+        if isinstance(org_id, str) and org_id:
+            key = ("id", org_id)
+        elif label:
+            key = ("label", label)
+        else:
+            return  # nothing identifies it
+        if not orgs.get(key):
+            orgs[key] = label
+
+    if any(isinstance(info.get(k), str) and info[k] for k in ("org_id", "org_name", "org_slug")):
+        add(info.get("org_id"), info.get("org_name"), info.get("org_slug"))
     for org in info.get("organizations") or info.get("orgs") or []:
         if isinstance(org, dict):
-            label = org.get("name") or org.get("slug") or org.get("id")
-            if isinstance(label, str):
-                orgs.append(_safe_text(label, 120))
-    if orgs:
-        out["organizations"] = sorted(set(orgs))
+            add(org.get("id"), org.get("name"), org.get("slug"))
+    # A label-only entry naming an org already known by id is the same organization.
+    named = {label for (kind, _), label in orgs.items() if kind == "id" and label}
+    labels = [label or UNNAMED_ORG for (kind, _), label in orgs.items()
+              if not (kind == "label" and label in named)]
+    if labels:
+        out["organizations"] = sorted(labels)
     return out
 
 
