@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+- **One credential per `netconverter mcp` process (#16).** The bridge honours
+  `NETCONVERTER_AUTH` (`NETCONVERTER_MCP_AUTH` still overrides it for `mcp` alone). In
+  `auto` mode a Clerk sign-in is preferred and used for both the REST API and the remote
+  tools; an API key from `NETCONVERTER_API_KEY` or the credential store is used only when
+  chosen (`--auth key`) or when there is no sign-in, never for one surface while the
+  sign-in serves the other. A startup line on stderr names the credential in use and the
+  one left unused; `account` reports it as `credential_source`.
 - **Refused requests show the server's reason (#22).** `APIError` now reads the External
   API's `error.message` (an older server's string `detail` too) and prints it, so
   `validate --vendor auto` says `unknown source_vendor 'auto'; valid: [...]` instead of a

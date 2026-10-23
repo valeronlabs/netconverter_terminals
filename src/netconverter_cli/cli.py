@@ -152,31 +152,75 @@ def whoami(args):
     print(json.dumps(out, indent=2))
 
 
+MCP_AUTH_MODES = ("auto", "clerk", "key")
+
+
+def mcp_auth_default() -> str:
+    """`mcp --auth` default: NETCONVERTER_MCP_AUTH, else NETCONVERTER_AUTH (#16), else auto."""
+    for name in ("NETCONVERTER_MCP_AUTH", "NETCONVERTER_AUTH"):
+        value = os.getenv(name, "")
+        if value in MCP_AUTH_MODES:
+            return value
+    return "auto"
+
+
+def choose_mcp_credential(auth: str, server: str, mcp_url: str):
+    """One principal for the whole bridge process (#16).
+
+    Returns (rest_credential, remote_credential, source, notes). REST and the
+    remote tools always get the same credential: ``auto`` prefers the signed-in
+    session and names the API key it leaves unused; a key is used only when
+    chosen (``--auth key`` / NETCONVERTER_AUTH=key) or when there is no
+    sign-in. A sign-in still goes only to trusted NetConverter hosts.
+    """
+    key = get_secret(account(server), prompt=False) if auth in ("auto", "key") else ""
+    key_source = "api_key_environment" if key and os.environ.get("NETCONVERTER_API_KEY") == key else "api_key_stored"
+    key_label = "NETCONVERTER_API_KEY" if key_source == "api_key_environment" else "the API key in the OS credential store"
+    session = _clerk_session() if auth in ("auto", "clerk") else None
+    rest_session = session if session is not None and clerk_allowed(server) else None
+    remote_session = session if session is not None and clerk_allowed(mcp_url) else None
+    notes = []
+    if session is not None and (rest_session is None or remote_session is None):
+        notes.append("your sign-in is only sent to trusted NetConverter hosts; "
+                     "an untrusted server or MCP URL will not receive it")
+    if auth == "key":
+        return (key or None, key or None, key_source if key else "none",
+                notes + [f"credential: {key_label} (--auth key)" if key else "credential: none (--auth key, no API key)"])
+    if auth == "clerk" or (session is not None and rest_session is not None and remote_session is not None):
+        if auth == "auto" and key:
+            notes.append(f"credential: Clerk sign-in; ignoring {key_label} (NETCONVERTER_AUTH=key or "
+                         "--auth key chooses the key instead)")
+        elif session is not None:
+            notes.append("credential: Clerk sign-in" + (" (--auth clerk)" if auth == "clerk" else ""))
+        else:
+            notes.append("credential: none (not signed in; run `netconverter login --clerk`)")
+        return rest_session, remote_session, "clerk_session" if session is not None else "none", notes
+    if key:  # auto: no usable sign-in, so the key serves both surfaces
+        notes.append(f"credential: {key_label}" + (" (sign-in present but not usable for this host)"
+                                                   if session is not None else ""))
+        return key, key, key_source, notes
+    if session is not None:  # auto: a sign-in usable on one surface only; never a second principal
+        notes.append("credential: Clerk sign-in")
+        return rest_session, remote_session, "clerk_session", notes
+    notes.append("credential: none (run `netconverter login --clerk`, or store an API key with `netconverter login`)")
+    return None, None, "none", notes
+
+
 def run_mcp(args):
     from .mcp_server import Bridge, run_stdio
     from .remote_mcp import RemoteMCP
     from . import __version__
 
-    key = get_secret(account(args.server), prompt=False) if args.auth in ("auto", "key") else ""
-    session = _clerk_session() if args.auth in ("auto", "clerk") else None
-    key = key or None
     mcp_url = args.mcp_url or mcp_url_for(args.server)
-    # The Clerk token goes only to trusted NetConverter hosts, per destination.
-    rest_session = session if session is not None and clerk_allowed(args.server) else None
-    remote_session = session if session is not None and clerk_allowed(mcp_url) else None
-    if session is not None and (rest_session is None or remote_session is None):
-        print("netconverter: your sign-in is only sent to trusted NetConverter hosts; "
-              "an untrusted server or MCP URL will not receive it", file=sys.stderr)
-    if args.auth == "auto":
-        # Today: API keys reach the REST API; Clerk tokens reach remote MCP.
-        rest, remote_credential = (key or rest_session), (remote_session or key)
-    else:
-        rest, remote_credential = (key, key) if args.auth == "key" else (rest_session, remote_session)
+    rest, remote_credential, source, notes = choose_mcp_credential(args.auth, args.server, mcp_url)
+    for note in notes:
+        print(f"netconverter mcp: {note}", file=sys.stderr)
     remote = None
     if remote_credential is not None and not args.no_remote:
         remote = RemoteMCP(mcp_url, remote_credential, client_version=__version__)
     try:
-        run_stdio(Bridge(args.workspace, args.server, rest, remote, strict=getattr(args, "strict", False)))
+        run_stdio(Bridge(args.workspace, args.server, rest, remote, strict=getattr(args, "strict", False),
+                         credential_source=source))
     finally:
         if remote:
             remote.close()
@@ -338,7 +382,9 @@ def parser():
     logout.add_argument("--all", action="store_true", help="also remove the stored API key for this server")
     subs.add_parser("whoami", help="show the signed-in account (never prints tokens)")
     mcp = subs.add_parser("mcp", help="run the local stdio MCP server for AI clients")
-    mcp.add_argument("--auth", choices=["auto", "clerk", "key"], default=os.getenv("NETCONVERTER_MCP_AUTH", "auto"))
+    mcp.add_argument("--auth", choices=list(MCP_AUTH_MODES), default=mcp_auth_default(),
+                     help="credential: auto (the sign-in, else an API key), clerk or key; "
+                          "default from NETCONVERTER_MCP_AUTH, else NETCONVERTER_AUTH")
     mcp.add_argument("--mcp-url", default=os.getenv("NETCONVERTER_MCP_URL"))
     mcp.add_argument("--no-remote", action="store_true", help="serve only the local file tools")
     mcp.add_argument("--strict", action="store_true", default=os.getenv("NETCONVERTER_MCP_STRICT") == "1",

@@ -111,7 +111,7 @@ delays a command; its result is cached in your user cache folder.
 | `submit_file(path, source_vendor, target_vendor?, job_type?, options?)` | `job_id`, `status`, `sha256`, `bytes`. `job_type`: `convert`, `validate`, `optimize`, or `analyze` (= validate) |
 | `job_status(job_id)` | Status, verdict, review flag, progress and stage when sent, reason counts, vendors |
 | `wait_for_job(job_id, timeout_s=45)` | The `job_status` summary plus `waited_s` and `timed_out` (plus `next` when still running: call it again); polls 2 s, ×1.5, up to 15 s apart, at most 600 s. The default stays under the 60 s tool timeout of Codex and OpenClaw; pass a larger `timeout_s` only when the client allows it. Sends MCP progress notifications when the call has a progress token |
-| `account()` | `tier`, `job_types`, `rate_limit_per_min`, `daily_quota`, `auth_kind`, `profile`, `client_version`, `update_available`, `latest_version`, `strict_mode` |
+| `account()` | `tier`, `job_types`, `rate_limit_per_min`, `daily_quota`, `auth_kind`, `profile`, `client_version`, `update_available`, `latest_version`, `strict_mode`, `credential_source` (`clerk_session`, `api_key_environment`, `api_key_stored` or `none`; the one credential REST and the remote tools share) |
 | `download(job_id, dest_dir=".")` | Saved file names, sizes and SHA-256 |
 
 Remote NetConverter tools are proxied only from a fixed allowlist, and never a
@@ -129,8 +129,9 @@ With `--strict`: `list_jobs`, `select_job`, `get_account`, `search`, `fetch`,
 
 Global options go before the subcommand: `netconverter --workspace DIR --server URL …`.
 Environment: `NETCONVERTER_URL`, `NETCONVERTER_PROVIDER`, `NETCONVERTER_MODEL`,
-`NETCONVERTER_AUTH=key` or `=clerk` (force one credential; unset, a stored key is used first, then
-your sign-in), `NETCONVERTER_TRUSTED_HOSTS`, `NETCONVERTER_MCP_STRICT=1` (same as `mcp --strict`),
+`NETCONVERTER_AUTH=key` or `=clerk` (force one credential; unset, plain commands use a stored key first, then
+your sign-in, while `mcp` prefers the sign-in and says on stderr which API key it leaves unused;
+`NETCONVERTER_MCP_AUTH` overrides it for `mcp` only), `NETCONVERTER_TRUSTED_HOSTS`, `NETCONVERTER_MCP_STRICT=1` (same as `mcp --strict`),
 `NETCONVERTER_NO_UPDATE_CHECK=1` (no daily update check or notice; `account` then reports
 `update_available: null`).
 Never put a literal key in shell history or a shared script.

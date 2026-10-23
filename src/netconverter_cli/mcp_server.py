@@ -143,7 +143,8 @@ LOCAL_TOOLS = [
         "name": "account",
         "description": (
             "Your NetConverter account as this bridge sees it: tier, job types allowed, rate limit, "
-            "daily quota, auth kind, the client version and whether a client update is available. "
+            "daily quota, auth kind, which credential this bridge runs on (credential_source), "
+            "the client version and whether a client update is available. "
             "No tokens or e-mail addresses." + _DATA_NOTE
         ),
         "inputSchema": {"type": "object", "properties": {}, "additionalProperties": False},
@@ -206,8 +207,11 @@ class Bridge:
     """Implements the local tools and proxies the remote catalogue."""
 
     def __init__(self, workspace, server: str, rest_credential=None, remote: RemoteMCP | None = None,
-                 *, transport=None, strict: bool = False):
+                 *, transport=None, strict: bool = False, credential_source: str | None = None):
         self.workspace = Workspace(workspace)
+        # Which credential this process runs on (#16): clerk_session, api_key_environment,
+        # api_key_stored or none; the same one serves REST and the remote tools.
+        self.credential_source = credential_source
         self.strict = bool(strict)
         self.remote_allowlist = REMOTE_TOOLS_STRICT if self.strict else REMOTE_TOOLS_DEFAULT
         self.server = server
@@ -431,7 +435,8 @@ class Bridge:
                 out["job_types"] = sorted({t for t in advertised if t in JOB_TYPES} & set(job_types)) or out["job_types"]
         state = update.status()
         out.update(client_version=__version__, update_available=state["update_available"],
-                   latest_version=state["latest"], strict_mode=self.strict)
+                   latest_version=state["latest"], strict_mode=self.strict,
+                   credential_source=self.credential_source)
         self._log("account")
         return out
 
