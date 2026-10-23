@@ -5,6 +5,7 @@ import shlex
 
 HELP = """/open "file.cfg" VENDOR_CODE        (vendor codes: netconverter --json capabilities)
 /convert {"target_vendor":"palo_alto_xml"}   /validate   /optimize
+/cd FOLDER   /ls [FOLDER]   /dir   /pwd
 /jobs   /resume [job_id]   /status   /target   /download   /allowance
 /unused_objects   /routes   /interfaces   /policy   /nat
 /dependencies {"object_name":"NAME"}
@@ -27,6 +28,12 @@ def execute(controller, text):
     rest = rest.strip()
     if command == "help":
         return {"help": HELP}
+    if command == "cd":
+        return controller.change_folder(rest)
+    if command in {"ls", "dir"}:
+        return controller.list_folder(rest)
+    if command == "pwd":
+        return {"folder": str(controller.workspace.root)}
     if command == "open":
         parts = shlex.split(rest)
         if len(parts) != 2:

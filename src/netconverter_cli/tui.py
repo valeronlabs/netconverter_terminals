@@ -122,6 +122,24 @@ class Terminal(App):
                                                'VS Code or Codex to this folder. Configurations go straight to '
                                                'NetConverter; the AI sees paths and summaries.', MUTED))))
 
+    def folder_command(self, command, argument):
+        from .presentation import folder_view
+        from .workspace import WorkspaceError
+        try:
+            if command == '/cd':
+                result = self.controller.change_folder(argument)
+                self.render_context()
+                jobs = result['jobs_here']
+                self.write_note(f"Now working in {result['folder']}"
+                                + (f" · {jobs} job(s) remembered here" if jobs else ''))
+                self.write(folder_view(self.controller.list_folder('')))
+            elif command == '/pwd':
+                self.write_note(str(self.controller.workspace.root))
+            else:
+                self.write(folder_view(self.controller.list_folder(argument)))
+        except (WorkspaceError, OSError) as exc:
+            self.show_error(str(exc))
+
     def show_error(self, message):
         self.write(card('Next step', literal(message, FG), 'warning'))
 
@@ -323,6 +341,9 @@ class Terminal(App):
             return
         if text == '/help':
             self.write(help_view())
+            return
+        if command in {'/cd', '/ls', '/dir', '/pwd'}:
+            self.folder_command(command, text[len(command):].strip())
             return
         if text == '/activity':
             entries = activity.recent(self.controller.workspace.state_dir, 20)

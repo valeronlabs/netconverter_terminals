@@ -78,6 +78,11 @@ HELP_SECTIONS = [
         ('/optimize', 'Cleanup and optimization findings'),
         ('/open', 'Choose a configuration without submitting'),
     ]),
+    ('Files', [
+        ('/ls  /dir [FOLDER]', 'List files and folders (names and sizes only)'),
+        ('/cd FOLDER', 'Work in another folder (~, .., absolute or relative)'),
+        ('/pwd', 'Show the current folder'),
+    ]),
     ('Results', [
         ('/jobs', 'Your server jobs'),
         ('/resume JOB_ID', 'Follow a job and fetch its files'),
@@ -99,6 +104,33 @@ HELP_SECTIONS = [
         ('/clear  /home', 'Clear the conversation · show the start card'),
     ]),
 ]
+
+
+def _size(n):
+    for unit in ('B', 'KB', 'MB', 'GB'):
+        if n < 1024 or unit == 'GB':
+            return f'{n:.0f} {unit}' if unit == 'B' else f'{n:.1f} {unit}'
+        n /= 1024
+
+
+def folder_view(listing):
+    """/ls: folders first, then files with sizes. Names only, never contents."""
+    table = Table.grid(padding=(0, 2))
+    table.add_column(style=FG)
+    table.add_column(style=MUTED, justify='right')
+    for entry in listing['entries']:
+        if entry['folder']:
+            table.add_row(literal(entry['name'] + '/', ACCENT), '')
+        else:
+            table.add_row(literal(entry['name']), _size(entry['bytes'] or 0))
+    rows = [table] if listing['entries'] else [literal('Empty folder.', MUTED)]
+    if listing['total'] > len(listing['entries']):
+        rows.append(literal(f"Showing {len(listing['entries'])} of {listing['total']}.", MUTED))
+    hint = '/cd NAME to work there · /open "file" VENDOR to choose a configuration'
+    if not listing['inside_workspace']:
+        hint = 'Outside the current folder · /cd there before opening files'
+    rows += [Text(''), literal(hint, MUTED)]
+    return card(listing['folder'], Group(*rows))
 
 
 def help_view():

@@ -22,6 +22,7 @@ commands their arguments there (`/open "edge.cfg" fortinet`).
 | `/validate` (`/analyze`) | Readiness, findings and parse gaps for a configuration |
 | `/optimize` | Cleanup and optimization findings |
 | `/open` | Choose a configuration without submitting |
+| `/ls [FOLDER]` · `/dir` · `/cd FOLDER` · `/pwd` | List files (names and sizes) · work in another folder (`~`, `..`, relative or absolute; each folder keeps its own jobs) · show the current folder |
 | `/jobs` · `/resume JOB_ID` · `/status` | List jobs · follow one · refresh the active job |
 | `/download` | Save the active job's outputs beside its source, hash-verified |
 | `/target` | Save the generated configuration and select it for `/validate` |

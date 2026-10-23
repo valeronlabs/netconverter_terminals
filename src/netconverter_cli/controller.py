@@ -1,10 +1,13 @@
 """User-directed local orchestration; providers never receive this object."""
 
 import base64
+import os
 import hashlib
 import json
 import time
 import uuid
+from pathlib import Path
+
 from .workspace import Workspace, WorkspaceError
 from .api import APIError, Client, ExternalClient
 from .backend import EXTERNAL_MAX_BYTES, download_external, submit_external
@@ -59,6 +62,48 @@ class Controller:
         self.state = self.workspace.load()
         self.allowance = {}
         self.catalog = Catalog()
+
+    # -- folders (typed by the user; never a model operation) -------------------
+
+    MAX_LISTED = 200
+
+    def _resolve_folder(self, path):
+        raw = Path(os.path.expanduser(path or "~"))
+        target = (raw if raw.is_absolute() else self.workspace.root / raw).resolve()
+        if not target.is_dir():
+            raise WorkspaceError(f"Not a folder: {target}")
+        return target
+
+    def change_folder(self, path):
+        """/cd: make another folder the workspace and load its own job state.
+
+        Only the user can type this. It is not in the model's operation list, and the
+        MCP bridge keeps its configured root, so a prompt cannot move the boundary.
+        """
+        target = self._resolve_folder(path)
+        if not os.access(target, os.W_OK):
+            raise WorkspaceError(f"{target} is not writable; choose a folder you own")
+        workspace = Workspace(target)
+        state = workspace.load()  # refuse before switching if its state is invalid
+        self.workspace, self.state = workspace, state
+        return {"folder": str(target), "jobs_here": len(state.get("jobs", {}))}
+
+    def list_folder(self, path=""):
+        """/ls, /dir: names and sizes only, never file contents."""
+        target = self._resolve_folder(path or ".")
+        entries = []
+        for item in target.iterdir():
+            if item.name.startswith("."):
+                continue
+            try:
+                is_dir = item.is_dir()
+                size = None if is_dir else item.stat().st_size
+            except OSError:
+                continue
+            entries.append({"name": item.name, "folder": is_dir, "bytes": size})
+        entries.sort(key=lambda e: (not e["folder"], e["name"].lower()))
+        return {"folder": str(target), "entries": entries[: self.MAX_LISTED],
+                "total": len(entries), "inside_workspace": target.is_relative_to(self.workspace.root)}
 
     @property
     def external(self) -> bool:
