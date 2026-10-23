@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.4.2 — 2026-10-23
+
+- **Running from a read-only folder no longer crashes.** Started from `/` (or any folder
+  you can't write) without `--workspace`, the CLI uses `~/migrations`, the folder the
+  installer creates, and says so on stderr. Before, first-run setup tried to create
+  `/.netconverter` and stopped with `OSError: Read-only file system`. An explicit
+  `--workspace` that can't be written is a one-line error. `login --key` from such a
+  folder still stores the key and skips remembering the server there.
+
 ## 0.4.1 — 2026-10-22
 
 - **First-run setup honours the Clerk sign-in (#6).** `NETCONVERTER_API_KEY` in the

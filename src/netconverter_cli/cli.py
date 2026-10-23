@@ -282,6 +282,41 @@ ACCOUNT_COMMANDS = frozenset({"login", "logout", "whoami", "update"})
 NO_UPDATE_NOTICE = frozenset({"mcp", "update"})
 
 
+# Used when the current folder can't be written (a shell sitting in "/", a
+# read-only mount) and no --workspace was given.
+DEFAULT_WORKSPACE = Path.home() / "migrations"  # the folder the installer creates
+
+
+def resolve_workspace(args) -> None:
+    """Pick the folder the file tools work in; never a read-only one.
+
+    Running from "/" on macOS made setup try to create "/.netconverter" on the
+    read-only system volume and crash with a traceback.
+    """
+    explicit = args.workspace is not None
+    args.workspace = args.workspace or "."
+    if args.command in ACCOUNT_COMMANDS:
+        return
+    try:
+        root = Path(args.workspace).resolve(strict=True)
+    except FileNotFoundError:
+        return  # workspace_settings reports a deleted folder
+    if os.access(root, os.W_OK):
+        return
+    if explicit:
+        raise SystemExit(
+            f"netconverter: the folder {str(root)!r} is not writable. "
+            f"Pass --workspace with a folder you own, for example --workspace {DEFAULT_WORKSPACE}."
+        )
+    DEFAULT_WORKSPACE.mkdir(mode=0o700, parents=True, exist_ok=True)
+    print(
+        f"netconverter: {root} is not writable, so {DEFAULT_WORKSPACE} is the workspace. "
+        "cd to your configuration folder or pass --workspace to use another.",
+        file=sys.stderr,
+    )
+    args.workspace = str(DEFAULT_WORKSPACE)
+
+
 def workspace_settings(args) -> dict:
     """Saved folder settings; a missing folder is a clear message, never a traceback.
 
@@ -304,7 +339,7 @@ def parser():
 
     p = argparse.ArgumentParser(prog="netconverter")
     p.add_argument("--version", action="version", version=f"netconverter-cli {__version__}")
-    p.add_argument("--workspace", default=".")
+    p.add_argument("--workspace", default=None)
     p.add_argument("--server", default=os.getenv("NETCONVERTER_URL"))
     p.add_argument(
         "--provider",
@@ -365,6 +400,7 @@ def parser():
 
 def main(argv=None):
     args = parser().parse_args(argv)
+    resolve_workspace(args)
     if args.command == "update":
         from . import update
 
@@ -407,7 +443,8 @@ def main(argv=None):
         kind, _ = detect_profile(key, args.server)
         stored = save_secret(account(args.server), key)
         from .workspace import Workspace
-        if Path(args.workspace).is_dir():  # remembering the server is optional
+        # remembering the server is optional; "/" and other read-only folders skip it
+        if Path(args.workspace).is_dir() and os.access(args.workspace, os.W_OK):
             workspace = Workspace(args.workspace)
             workspace._inside(workspace.state_dir).mkdir(mode=0o700, exist_ok=True)
             workspace._atomic_replace(workspace.state_dir / "connection.json", json.dumps({**settings, "server": args.server}).encode())
