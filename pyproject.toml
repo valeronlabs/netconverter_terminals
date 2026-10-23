@@ -53,4 +53,5 @@ packages = ["src/netconverter_cli"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+pythonpath = ["."]
 asyncio_mode = "auto"

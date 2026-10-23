@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+- **Running from a read-only folder no longer crashes.** Started from `/` (or any folder
+  you can't write) without `--workspace`, the CLI uses `~/migrations`, the folder the
+  installer creates, and says so on stderr. Before, first-run setup tried to create
+  `/.netconverter` and stopped with `OSError: Read-only file system`. An explicit
+  `--workspace` that can't be written is a one-line error. `login --key` from such a
+  folder still stores the key and skips remembering the server there.
 - **`mcp --strict` requests and verifies the server's strict view (#15).** The bridge sends
   `X-NetConverter-View: strict` on every remote request (the server may only lower the
   grant's view) and reads the view in force from `get_account`; `account` now reports
