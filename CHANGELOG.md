@@ -1,5 +1,13 @@
 # Changelog
 
+## Unreleased
+
+- **`wait_for_job` fits a 60 s client tool timeout (#18).** The default `timeout_s` is 45
+  (was 300; max still 600). A job still running when the wait ends comes back with
+  `timed_out: true` and `next: "still running; call wait_for_job again …"` instead of the
+  call being cut off by Codex or OpenClaw mid-job. Pass a larger `timeout_s` explicitly when
+  the client allows a longer wait.
+
 ## 0.4.1 — 2026-10-22
 
 - **First-run setup honours the Clerk sign-in (#6).** `NETCONVERTER_API_KEY` in the

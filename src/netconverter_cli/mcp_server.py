@@ -36,7 +36,10 @@ JOB_TYPES = ("convert", "validate", "optimize")
 JOB_TYPE_ALIASES = {"analyze": "validate"}  # as `netconverter analyze` maps it
 PENDING = frozenset({"queued", "processing", "running", "unknown"})
 WAIT_MAX_S = 600
-WAIT_DEFAULT_S = 300
+# Below the 60 s tool timeout Codex and OpenClaw apply by default (#18): a job
+# still running when the wait ends is reported, not cut off mid-call.
+WAIT_DEFAULT_S = 45
+WAIT_AGAIN = "still running; call wait_for_job again (or job_status) for the result"
 # Pipeline stage names a status may report; anything else is left out.
 STAGES = frozenset({"queued", "initializing", "parsing", "extracting", "mapping", "translating",
                     "serializing", "validating", "validate", "reporting", "complete", "completed"})
@@ -122,8 +125,9 @@ LOCAL_TOOLS = [
         "name": "wait_for_job",
         "description": (
             "Wait for a NetConverter job to leave queued/running, polling with backoff for at most "
-            "timeout_s seconds (max 600). Returns the job_status summary plus waited_s and timed_out; "
-            "call it again if timed_out is true." + _DATA_NOTE
+            f"timeout_s seconds (default {WAIT_DEFAULT_S}, max {WAIT_MAX_S}; the default stays under "
+            "a 60 s client tool timeout). Returns the job_status summary plus waited_s and timed_out; "
+            "a job can take minutes, so call it again while timed_out is true." + _DATA_NOTE
         ),
         "inputSchema": {
             "type": "object",
@@ -382,6 +386,8 @@ class Bridge:
             delay = min(delay * 1.5, 15.0)
         out["waited_s"] = round(max(0.0, self._clock() - start), 1)
         out["timed_out"] = out["status"] in PENDING
+        if out["timed_out"]:
+            out["next"] = WAIT_AGAIN
         self._log("wait_for_job", job_id=job_id, status=out.get("verdict") or out["status"])
         return out
 

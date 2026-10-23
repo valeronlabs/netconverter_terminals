@@ -110,7 +110,7 @@ delays a command; its result is cached in your user cache folder.
 | --- | --- |
 | `submit_file(path, source_vendor, target_vendor?, job_type?, options?)` | `job_id`, `status`, `sha256`, `bytes`. `job_type`: `convert`, `validate`, `optimize`, or `analyze` (= validate) |
 | `job_status(job_id)` | Status, verdict, review flag, progress and stage when sent, reason counts, vendors |
-| `wait_for_job(job_id, timeout_s=300)` | The `job_status` summary plus `waited_s` and `timed_out`; polls 2 s, ×1.5, up to 15 s apart, at most 600 s. Sends MCP progress notifications when the call has a progress token |
+| `wait_for_job(job_id, timeout_s=45)` | The `job_status` summary plus `waited_s` and `timed_out` (plus `next` when still running: call it again); polls 2 s, ×1.5, up to 15 s apart, at most 600 s. The default stays under the 60 s tool timeout of Codex and OpenClaw; pass a larger `timeout_s` only when the client allows it. Sends MCP progress notifications when the call has a progress token |
 | `account()` | `tier`, `job_types`, `rate_limit_per_min`, `daily_quota`, `auth_kind`, `profile`, `client_version`, `update_available`, `latest_version`, `strict_mode` |
 | `download(job_id, dest_dir=".")` | Saved file names, sizes and SHA-256 |
 

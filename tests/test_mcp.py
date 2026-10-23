@@ -712,3 +712,30 @@ def test_initialize_reports_the_client_version(workspace):
     reply = StdioServer(make_bridge(workspace, QuickServer())).handle(
         {"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {}})
     assert reply["result"]["serverInfo"] == {"name": "netconverter-local", "version": __version__}
+
+
+# ---------------------------------------------------------------------------
+# #18: wait_for_job must return before a 60 s client tool timeout by default
+# ---------------------------------------------------------------------------
+
+
+def test_wait_for_job_default_fits_a_60s_client_timeout(workspace):
+    from netconverter_cli.mcp_server import WAIT_DEFAULT_S, WAIT_MAX_S
+
+    assert WAIT_DEFAULT_S < 60 and WAIT_MAX_S == 600
+    schema = {t["name"]: t for t in Bridge(workspace, SERVER).list_tools()}["wait_for_job"]
+    assert schema["inputSchema"]["properties"]["timeout_s"]["default"] == WAIT_DEFAULT_S
+    assert "call it again" in schema["description"]
+    server = Sequenced(["running"])
+    bridge = make_bridge(workspace, server)
+    clock = fake_time(bridge)
+    result, payload = call(bridge, "wait_for_job", job_id=JOB)  # no timeout_s: the default
+    assert result["isError"] is False
+    assert payload["timed_out"] is True and payload["status"] == "running"
+    assert clock["now"] <= WAIT_DEFAULT_S < 60
+    assert "call wait_for_job again" in payload["next"]
+    # An explicit longer wait is still possible for clients with a long tool timeout.
+    bridge2 = make_bridge(workspace, Sequenced(["running"]))
+    clock2 = fake_time(bridge2)
+    _, payload2 = call(bridge2, "wait_for_job", job_id=JOB, timeout_s=300)
+    assert payload2["timed_out"] is True and clock2["now"] >= 300
