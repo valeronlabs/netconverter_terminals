@@ -158,6 +158,7 @@ Never put a literal key in shell history or a shared script.
 | No verified configuration | Read validation reports and warnings; evidence can be available even when no deployable output is produced |
 | Proxy-only network fails | Client HTTP connections ignore environment proxy settings and do not follow redirects; use a network with direct access to configured endpoints |
 | Full-screen UI unsuitable | Use `netconverter plain` or individual CLI commands |
+| `keyring_unreachable` from the bridge (Linux) | The assistant launched `netconverter mcp` without `DBUS_SESSION_BUS_ADDRESS`; the bridge tries `$XDG_RUNTIME_DIR/bus` and `/run/user/<uid>/bus`, else set that variable (or `NETCONVERTER_API_KEY`) in the assistant's MCP server environment and restart it |
 | Assistant cannot see a NetConverter tool | The bridge lists only allowlisted remote tools the server offers (fewer with `--strict`); update the client with `netconverter update` |
 | `netconverter update` says uv is not on PATH | Install uv, or follow the printed download, `shasum -a 256 -c SHA256SUMS` and `uv tool install --force` steps |
 

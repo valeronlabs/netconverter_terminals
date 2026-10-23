@@ -57,5 +57,6 @@ It should list tools such as `list_jobs`, `get_job_brief` and `kb_search`, and
 | `mcp_not_granted` / "not enabled for this account" | Ask your NetConverter administrator to grant MCP access to your user or organization. |
 | Sign-in loops or fails (remote connector) | Check the OAuth Client ID in the connector's advanced settings matches the guide, and sign in with your NetConverter account. |
 | Names appear as `<name:…>` | Your account uses **strict view**: configuration names are tokenised on purpose. |
+| `keyring_unreachable` (Linux: Codex, Cursor CLI, OpenClaw) | The assistant started the bridge without `DBUS_SESSION_BUS_ADDRESS`, so your sign-in in the OS keyring is invisible. The bridge looks for `$XDG_RUNTIME_DIR/bus` and `/run/user/<uid>/bus` itself; if neither exists, set `DBUS_SESSION_BUS_ADDRESS=unix:path=/run/user/<uid>/bus` (Codex `env_vars`; Cursor/OpenClaw `env`) or `NETCONVERTER_API_KEY` in the assistant's MCP server config and restart it. |
 
 Privacy details: [PRIVACY.md](../PRIVACY.md).

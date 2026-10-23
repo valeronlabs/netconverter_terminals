@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+- **Linux: the bridge finds the keyring when the assistant hides the D-Bus bus (#17).**
+  Codex, Cursor CLI and OpenClaw start MCP servers without `DBUS_SESSION_BUS_ADDRESS`, so
+  the Clerk sign-in in the Secret Service was invisible and every tool said "not signed
+  in". The client now points at `$XDG_RUNTIME_DIR/bus`, then `/run/user/<uid>/bus`, before
+  keyring picks its backend. When no OS keyring is reachable, tool errors and the
+  `netconverter mcp` startup line say `keyring_unreachable` and name the fix (set the bus
+  address or `NETCONVERTER_API_KEY` in the assistant's MCP env) instead of "sign in".
 - **One credential per `netconverter mcp` process (#16).** The bridge honours
   `NETCONVERTER_AUTH` (`NETCONVERTER_MCP_AUTH` still overrides it for `mcp` alone). In
   `auto` mode a Clerk sign-in is preferred and used for both the REST API and the remote

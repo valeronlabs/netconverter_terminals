@@ -2,6 +2,7 @@
 
 import getpass
 import os
+import sys
 
 import keyring
 
@@ -18,7 +19,59 @@ _OS_BACKENDS = frozenset(
 )
 
 
+def session_bus_fallback(environ=None, *, platform=None, uid=None, exists=os.path.exists):
+    """Linux: point DBUS_SESSION_BUS_ADDRESS at the user's bus socket when it is unset (#17).
+
+    Codex, Cursor CLI and OpenClaw start stdio MCP servers with a near-empty
+    environment, and jeepney (keyring → Secret Service) reads only that
+    variable, so the sign-in in the OS keyring was invisible. Tries
+    ``$XDG_RUNTIME_DIR/bus``, then ``/run/user/<uid>/bus``; returns the socket
+    path it chose, else None. Must run before keyring picks its backend.
+    """
+    environ = os.environ if environ is None else environ
+    platform = sys.platform if platform is None else platform
+    if not platform.startswith("linux") or environ.get("DBUS_SESSION_BUS_ADDRESS"):
+        return None
+    candidates = []
+    runtime = environ.get("XDG_RUNTIME_DIR")
+    if runtime:
+        candidates.append(f"{runtime.rstrip('/')}/bus")
+    if uid is None:
+        uid = getattr(os, "getuid", lambda: None)()
+    if uid is not None:
+        candidates.append(f"/run/user/{uid}/bus")
+    for path in dict.fromkeys(candidates):  # in order, without a duplicate
+        if exists(path):
+            environ["DBUS_SESSION_BUS_ADDRESS"] = f"unix:path={path}"
+            return path
+    return None
+
+
+def keyring_problem() -> str:
+    """Why no OS credential store is reachable; "" when one is (#17).
+
+    Written for the person reading an AI client's tool error: it names the
+    missing D-Bus bus and the keyring backend in use, never a secret.
+    """
+    session_bus_fallback()
+    try:
+        backend = keyring.get_keyring()
+    except Exception as exc:  # noqa: BLE001 - any keyring failure is the answer
+        return f"the keyring library failed ({type(exc).__name__})"
+    if backend.__class__.__module__ in _OS_BACKENDS:
+        return ""
+    name = f"{backend.__class__.__module__}.{backend.__class__.__name__}"
+    if sys.platform.startswith("linux"):
+        if not os.environ.get("DBUS_SESSION_BUS_ADDRESS"):
+            return ("no D-Bus session bus: DBUS_SESSION_BUS_ADDRESS is not set and no "
+                    "/run/user/<uid>/bus socket was found, so the Secret Service keyring is "
+                    f"unreachable (keyring backend: {name})")
+        return f"the Secret Service keyring did not answer on the D-Bus session bus (keyring backend: {name})"
+    return f"no OS credential store is available (keyring backend: {name})"
+
+
 def _os_backend():
+    session_bus_fallback()
     backend = keyring.get_keyring()
     if backend.__class__.__module__ not in _OS_BACKENDS:
         return None

@@ -26,6 +26,7 @@ from .api import APIError, Client, ExternalClient
 from .backend import EXTERNAL_MAX_BYTES, detect_profile, download_external, submit_external
 from .clerk import ClerkError
 from .controller import fetch_artifacts
+from .credentials import keyring_problem
 from .privacy import STATUSES
 from .remote_mcp import RemoteError, RemoteMCP
 from .workspace import MAX_CONFIG_BYTES, Workspace, WorkspaceError
@@ -203,6 +204,25 @@ def _api_failure(exc: APIError) -> ToolFailure:
                        f"NetConverter refused the request ({exc.code}, HTTP {exc.status}){reason}", **extra)
 
 
+def _no_credential() -> ToolFailure:
+    """Why there is no credential: an unreachable keyring (#17) is not "not signed in"."""
+    problem = keyring_problem()
+    if problem:
+        return ToolFailure(
+            "keyring_unreachable",
+            f"No NetConverter credential is reachable from this AI client: {problem}. The sign-in "
+            "in the OS keyring cannot be read here. Fix: start this MCP server with "
+            "DBUS_SESSION_BUS_ADDRESS=unix:path=/run/user/<uid>/bus in its environment (Codex: "
+            "env_vars; Cursor and OpenClaw: env), or set NETCONVERTER_API_KEY there; then restart "
+            "the client. New user? Run `netconverter login --clerk` in a terminal first.",
+        )
+    return ToolFailure(
+        "not_signed_in",
+        "No NetConverter credential. Sign in with `netconverter login --clerk` (or store an API "
+        "key with `netconverter login`) in a terminal, then restart this MCP server and retry.",
+    )
+
+
 class Bridge:
     """Implements the local tools and proxies the remote catalogue."""
 
@@ -228,11 +248,7 @@ class Bridge:
 
     def _client(self, cls):
         if self.rest_credential is None:
-            raise ToolFailure(
-                "not_signed_in",
-                "No NetConverter credential. Run `netconverter login` (API key) or "
-                "`netconverter login --clerk` in a terminal, then restart the MCP server.",
-            )
+            raise _no_credential()
         return cls(self.rest_credential, self.server, transport=self._transport)
 
     def profile(self) -> tuple[str, frozenset]:

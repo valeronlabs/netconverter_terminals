@@ -8,7 +8,7 @@ import sys
 from pathlib import Path
 from .api import Client, DEFAULT_BASE, APIError
 from .backend import detect_profile, open_client
-from .credentials import get_secret, keyring_available, load_secret, save_secret
+from .credentials import get_secret, keyring_available, keyring_problem, load_secret, save_secret
 from .controller import Controller
 from .providers import Provider, ProviderError
 from .commands import execute
@@ -202,7 +202,13 @@ def choose_mcp_credential(auth: str, server: str, mcp_url: str):
     if session is not None:  # auto: a sign-in usable on one surface only; never a second principal
         notes.append("credential: Clerk sign-in")
         return rest_session, remote_session, "clerk_session", notes
-    notes.append("credential: none (run `netconverter login --clerk`, or store an API key with `netconverter login`)")
+    problem = keyring_problem()
+    if problem:  # an AI client started us without the desktop keyring (#17): say so, not "sign in"
+        notes.append(f"credential: none; {problem}. Start this MCP server with "
+                     "DBUS_SESSION_BUS_ADDRESS=unix:path=/run/user/<uid>/bus in its environment, "
+                     "or set NETCONVERTER_API_KEY there.")
+    else:
+        notes.append("credential: none (run `netconverter login --clerk`, or store an API key with `netconverter login`)")
     return None, None, "none", notes
 
 
