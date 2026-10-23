@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.4.3 — 2026-10-23
+
+- **Move between folders in the terminal app.** `/ls [FOLDER]` (or `/dir`) lists files and
+  folders with sizes, folders first, hidden files left out; it never reads file contents.
+  `/cd FOLDER` makes another folder the workspace (`~`, `..`, relative or absolute) and
+  loads that folder's own remembered jobs; a missing or read-only folder is refused and
+  nothing changes. `/pwd` shows the current folder. These are typed commands only: the
+  model cannot choose them, and the MCP bridge keeps the `--workspace` it was started with.
+
 ## 0.4.2 — 2026-10-23
 
 - **Running from a read-only folder no longer crashes.** Started from `/` (or any folder
