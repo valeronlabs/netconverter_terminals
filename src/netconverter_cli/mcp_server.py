@@ -197,8 +197,9 @@ def _api_failure(exc: APIError) -> ToolFailure:
             "store an API key with `netconverter login`.",
             **extra,
         )
+    reason = f": {exc.message}" if exc.message else ""
     return ToolFailure(re.sub(r"[^a-z0-9_]", "", exc.code.lower())[:60] or "request_failed",
-                       f"NetConverter refused the request ({exc.code}, HTTP {exc.status})", **extra)
+                       f"NetConverter refused the request ({exc.code}, HTTP {exc.status}){reason}", **extra)
 
 
 class Bridge:

@@ -11,11 +11,18 @@ import httpx
 DEFAULT_BASE = "https://api.netconverter.ai/external/v1"
 
 
+def _printable(value, limit: int = 300) -> str:
+    """Server-supplied text shown to a person: printable characters only, capped."""
+    return "".join(ch for ch in str(value or "") if ch.isprintable() or ch == " ")[:limit].strip()
+
+
 class APIError(RuntimeError):
-    def __init__(self, status: int, code: str, request_id: str = "", detail=None):
-        super().__init__(
-            f"NetConverter {code} (HTTP {status}, request {request_id or 'unavailable'})"
-        )
+    def __init__(self, status: int, code: str, request_id: str = "", detail=None, message=None):
+        self.message = _printable(message) if isinstance(message, str) else ""
+        text = f"NetConverter {code} (HTTP {status}, request {request_id or 'unavailable'})"
+        if self.message:  # the server's reason, e.g. "unknown source_vendor 'auto'; valid: [...]"
+            text += f": {self.message}"
+        super().__init__(text)
         self.status, self.code, self.request_id, self.detail = (
             status,
             code,
@@ -124,11 +131,18 @@ class Client:
         error = body.get("error", {}) if isinstance(body, dict) else {}
         if not isinstance(error, dict):
             error = {}
+        detail = body.get("detail", error.get("detail")) if isinstance(body, dict) else None
+        # The External API envelope carries the reason in error.message; an older
+        # server may send a plain-string detail instead.
+        message = error.get("message")
+        if not isinstance(message, str) and isinstance(detail, str):
+            message, detail = detail, None
         return APIError(
             response.status_code,
             str(error.get("code", "request_failed")),
             body.get("request_id", request_id) if isinstance(body, dict) else request_id,
-            body.get("detail", error.get("detail")) if isinstance(body, dict) else None,
+            detail,
+            message,
         )
 
     def request(

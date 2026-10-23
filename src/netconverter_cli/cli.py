@@ -182,6 +182,21 @@ def run_mcp(args):
             remote.close()
 
 
+def check_source_vendor(vendor: str, catalog) -> None:
+    """Refuse a source vendor code the server does not list, naming the valid ones (#22).
+
+    There is no ``auto``: detection exists only in the guided flow. A catalogue
+    without a vendor list (an older server) cannot judge, so the server decides.
+    """
+    if not catalog.loaded or vendor in catalog.vendors:
+        return
+    sources = sorted(code for code, v in catalog.vendors.items() if "source" in (v.get("roles") or ["source"]))
+    print(f"netconverter: unknown source vendor {vendor!r} (there is no 'auto'). "
+          f"Valid --vendor codes: {', '.join(sources) or 'none listed'}; "
+          "`netconverter capabilities` shows names and conversion paths.")
+    raise SystemExit(1)
+
+
 def remote_for(server, credential):
     """The NetConverter MCP endpoint for questions, only over a trusted host for a sign-in."""
     from .remote_mcp import RemoteMCP
@@ -464,6 +479,7 @@ def main(argv=None):
             result = c.capabilities()
         elif args.command in {"validate", "analyze", "optimize", "convert"}:
             c.capabilities()
+            check_source_vendor(args.vendor, c.catalog)  # before anything is uploaded (#22)
             c.select(args.file, args.vendor)
             options = json.loads(args.options)
             if args.target:

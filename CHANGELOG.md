@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+- **Refused requests show the server's reason (#22).** `APIError` now reads the External
+  API's `error.message` (an older server's string `detail` too) and prints it, so
+  `validate --vendor auto` says `unknown source_vendor 'auto'; valid: [...]` instead of a
+  bare HTTP 422; MCP tool errors carry the same reason. `validate`/`analyze`/`optimize`/
+  `convert` also check `--vendor` against the server's capabilities before uploading and
+  list the valid source codes (there is no `auto`; detection lives in the guided flow).
 - **`wait_for_job` fits a 60 s client tool timeout (#18).** The default `timeout_s` is 45
   (was 300; max still 600). A job still running when the wait ends comes back with
   `timed_out: true` and `next: "still running; call wait_for_job again …"` instead of the
