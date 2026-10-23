@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.4.2 — 2026-10-23
 
 - **Running from a read-only folder no longer crashes.** Started from `/` (or any folder
   you can't write) without `--workspace`, the CLI uses `~/migrations`, the folder the
