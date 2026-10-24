@@ -77,7 +77,7 @@ class JobServer:
         if path == "drafts/d1":
             assert request.url.params["revision"] == "1"
             return self.response({**self.binding(), "description": CANARY})
-        if path == "jobs/j1":
+        if path == "guided/jobs/j1":
             self.job_reads += 1
             if self.error_status:
                 return httpx.Response(self.error_status, json={"success": False, "error": {
@@ -91,11 +91,11 @@ class JobServer:
             if self.revoke_after_poll:
                 self.revoked = True
             return self.response(data)
-        if path == "jobs/j1/artifacts":
+        if path == "guided/jobs/j1/artifacts":
             assert request.url.params["manifest_revision"] == "2"
             return self.response({**self.binding(), "job_id": "j1", "manifest_revision": 2,
                                   "artifacts": [{**self.descriptor(), "filename": CANARY}]})
-        if path == "jobs/j1/artifacts/" + ARTIFACT:
+        if path == "guided/jobs/j1/artifacts/" + ARTIFACT:
             assert request.url.params["manifest_revision"] == "2"
             return httpx.Response(200, stream=httpx.ByteStream(CONTENT),
                                   headers={"Content-Length": str(len(CONTENT)), "Content-Type": "text/plain"})

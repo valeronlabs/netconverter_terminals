@@ -155,26 +155,27 @@ def test_manual_yaml_workflow_uses_revisions_without_ai(tmp_path, monkeypatch, c
             return response(metadata(status="prepared", document=state["document"]))
         if path.endswith("/validate"):
             assert json.loads(request.content) == {"expected_revision": state["revision"]}
-            return response(metadata(validation_status="passed"))
+            return response(metadata(validation_status="needs_review", submission_readiness="ready_for_submission"))
         if path.endswith("/review-requests"):
             return response(metadata(review_id="review_1", status="pending_review",
                 review_url="https://api.netconverter.ai/external/v1/drafts/draft_1/reviews/review_1"))
         if path.endswith("/approval-status"):
             return response(metadata(status="approved" if state["approved"] else "pending_review",
-                approval_ref="approval_1", human_bound=state["approved"], validation_status="passed",
+                approval_ref="approval_1", human_bound=state["approved"], validation_status="needs_review",
+                submission_readiness="ready_for_submission", approval_scope="migration_submission",
                 validated_content_sha256=sha(state["document"])))
-        if path == "jobs":
+        if path == "guided/jobs":
             assert state["approved"]
             assert json.loads(request.content) == {"approved_draft_id": "draft_1",
                 "draft_revision": 2, "approval_ref": "approval_1"}
             return response({"job_id": "job_1", "status": "queued"})
-        if path == "jobs/job_1":
+        if path == "guided/jobs/job_1":
             return response(metadata(job_id="job_1", status="complete", progress=100,
                 manifest_revision=1, artifacts=[descriptor], raw_output=artifact.decode()))
-        if path == "jobs/job_1/artifacts":
+        if path == "guided/jobs/job_1/artifacts":
             assert request.url.params["manifest_revision"] == "1"
             return response(metadata(job_id="job_1", manifest_revision=1, artifacts=[descriptor]))
-        if path == "jobs/job_1/artifacts/" + descriptor["artifact_id"]:
+        if path == "guided/jobs/job_1/artifacts/" + descriptor["artifact_id"]:
             assert request.url.params["manifest_revision"] == "1"
             return httpx.Response(200, stream=httpx.ByteStream(artifact),
                                   headers={"Content-Length": str(len(artifact))})

@@ -100,7 +100,7 @@ def test_exact_revision_and_key_in_mutation(tmp_path):
         assert request.url.path.endswith("/validate")
         assert json.loads(request.content) == {"expected_revision": 7}
         assert request.headers["Idempotency-Key"] == KEY
-        return success(draft(revision=7, validation_status="passed"))
+        return success(draft(revision=7, validation_status="needs_review"))
     svc, _ = service(tmp_path, handle)
     assert svc.call("validate_draft", args(revision=7))["ok"]
 
@@ -142,14 +142,18 @@ def test_yaml_upload_direct_and_strict_change_contract(tmp_path):
 
 def approved(**changes):
     result = draft(approval_ref="approval_1", status="approved", human_bound=True,
-                   validation_status="passed", validated_content_sha256=SHA)
+                   validation_status="not_evaluated", validated_content_sha256=SHA,
+                   submission_readiness="ready_for_submission", approval_scope="migration_submission")
     result.update(changes)
     return result
 
 
 @pytest.mark.parametrize("changes", [{"status": "pending_review"}, {"human_bound": False}, {"revision": 2}, {"revision": True},
                                      {"approval_ref": "wrong"}, {"draft_id": "other"}, {"validated_content_sha256": "0" * 64},
-                                     {"validation_status": "needs_review"}])
+                                     {"submission_readiness": "blocked"}, {"submission_readiness": None},
+                                     {"approval_scope": "device_deployment"}, {"approval_scope": None},
+                                     {"human_bound": "true"}, {"human_bound": 1},
+                                     {"validation_status": "passed", "submission_readiness": "blocked"}])
 def test_false_stale_or_other_approval_blocks_execution(tmp_path, changes):
     def handle(request):
         assert request.method == "GET"
@@ -166,7 +170,7 @@ def test_execution_uses_current_server_approval_and_no_raw_config(tmp_path):
         if request.url.path.endswith("/approval-status"):
             assert request.url.params["revision"] == "1"
             return success(approved())
-        assert request.url.path.endswith("/jobs")
+        assert request.url.path.endswith("/guided/jobs")
         assert json.loads(request.content) == {"approved_draft_id": "draft_1", "draft_revision": 1, "approval_ref": "approval_1"}
         assert request.headers["Idempotency-Key"] == KEY
         return success({"job_id": "job_1", "status": "queued", "source_config": CANARY})
@@ -174,6 +178,79 @@ def test_execution_uses_current_server_approval_and_no_raw_config(tmp_path):
     result = svc.call("execute_approved", args(approval_ref="approval_1"))
     assert result == {"schema_version": "1", "ok": True, "data": {"job_id": "job_1", "status": "queued"}}
     assert len(seen) == 4
+
+
+@pytest.mark.parametrize("status", ["not_evaluated", "needs_review"])
+def test_submission_approval_does_not_require_an_output_pass(tmp_path, status):
+    def handle(request):
+        if request.method == "GET":
+            return success(approved(validation_status=status))
+        assert request.url.path == "/external/v1/guided/jobs"
+        return success({"job_id": "job_1", "status": "queued"})
+    svc, seen = service(tmp_path, handle)
+    assert svc.call("execute_approved", args(approval_ref="approval_1"))["ok"]
+    assert len([request for request in seen if request.method == "POST"]) == 1
+
+
+def test_output_pass_without_independent_submission_receipt_cannot_execute(tmp_path):
+    svc, seen = service(tmp_path, lambda request: success(draft(validation_status="passed")))
+    result = svc.call("execute_approved", args(approval_ref="approval_1"))
+    assert result["error"]["code"] == "approval_required"
+    assert not any(request.method == "POST" for request in seen)
+
+
+@pytest.mark.parametrize("new_validation_status", ["not_evaluated", "needs_review", "failed", "inconclusive"])
+def test_consumed_receipt_recovers_lost_response_after_revalidation(tmp_path, new_validation_status):
+    state = {"consumed": False, "jobs": 0}
+    payloads = []
+    current = draft()
+    def handle(request):
+        if request.url.path.endswith("/approval-status"):
+            if state["consumed"]:
+                # New validation may block another conversion. The consumed
+                # receipt still references the earlier immutable job/content.
+                return success(approved(status="consumed", validation_status=new_validation_status))
+            return success(approved())
+        assert request.url.path == "/external/v1/guided/jobs"
+        payloads.append((request.headers["Idempotency-Key"], json.loads(request.content)))
+        if not state["consumed"]:
+            state.update(consumed=True, jobs=1)
+            current.update(revision=2, content_sha256="0" * 64,
+                           validation_status=new_validation_status, submission_readiness="blocked")
+            raise httpx.ReadTimeout("Synthetic response loss after committed submission", request=request)
+        return success({"job_id": "job_original", "status": "queued"})
+    svc, seen = service(tmp_path, handle, metadata=current)
+    arguments = args(approval_ref="approval_1")
+    assert svc.call("execute_approved", arguments)["error"]["code"] == "connection_failed"
+    recovered = svc.call("execute_approved", arguments)
+    assert recovered["ok"] and recovered["data"]["job_id"] == "job_original"
+    assert state["jobs"] == 1 and payloads[0] == payloads[1]
+    assert len([request for request in seen if request.url.path.endswith("/drafts/draft_1")]) == 1
+    assert CANARY not in json.dumps(recovered)
+
+
+@pytest.mark.parametrize("changes", [{"human_bound": False}, {"approval_scope": "device_deployment"},
+    {"approval_ref": "another"}, {"revision": 2}, {"content_sha256": "0" * 64},
+    {"validated_content_sha256": "0" * 64}])
+def test_consumed_recovery_retains_identity_and_content_guards(tmp_path, changes):
+    svc, seen = service(tmp_path, lambda request: success(approved(status="consumed", **changes)))
+    assert svc.call("execute_approved", args(approval_ref="approval_1"))["error"]["code"] == "approval_required"
+    assert not any(request.method == "POST" for request in seen)
+
+
+def test_consumed_recovery_rechecks_capability_and_server_authorization(tmp_path):
+    capability = capabilities()
+    def denied(request):
+        assert request.url.path.endswith("/approval-status")
+        return httpx.Response(403, json={"error": {"code": "access_denied", "message": CANARY}})
+    svc, seen = service(tmp_path, denied, caps=capability)
+    result = svc.call("execute_approved", args(approval_ref="approval_1"))
+    assert not result["ok"] and CANARY not in json.dumps(result)
+    assert not any(request.method == "POST" for request in seen)
+    capability["guided_workflows"]["operations"].remove("execute_approved")
+    before = len(seen)
+    assert svc.call("execute_approved", args(approval_ref="approval_1"))["error"]["code"] == "unsupported_capability"
+    assert len(seen) == before + 1
 
 
 def test_document_manifest_hash_identity_and_no_clobber(tmp_path):
@@ -218,7 +295,9 @@ def test_resources_project_private_fields_and_match_request(tmp_path):
 
 def test_draft_transport_rejects_legacy_routes_and_methods(tmp_path):
     client = DraftClient("test_only", transport=httpx.MockTransport(lambda req: pytest.fail("No network")))
-    for method, route in [("POST", "quick/jobs"), ("GET", "me"), ("DELETE", "drafts/draft_1"), ("PUT", "drafts/draft_1/document"), ("GET", "https://evil.example")]:
+    for method, route in [("POST", "quick/jobs"), ("POST", "jobs"), ("GET", "jobs/job_1"),
+                          ("GET", "jobs/job_1/artifacts"), ("GET", "me"),
+                          ("DELETE", "drafts/draft_1"), ("PUT", "drafts/draft_1/document"), ("GET", "https://evil.example")]:
         with pytest.raises(ValueError):
             client.request(method, route)
 
@@ -267,9 +346,13 @@ def test_every_request_demands_server_strict_view(tmp_path):
 ])
 def test_other_draft_kind_pair_blocks_mutation_download_and_yaml_read(tmp_path, monkeypatch, action, arguments):
     monkeypatch.setattr("netconverter_cli.drafts.secure_snapshot", lambda *a, **k: pytest.fail("No file read"))
-    svc, seen = service(tmp_path, lambda req: pytest.fail("No mutation/download"), metadata=draft(source_vendor="fortinet"))
+    def handle(request):
+        assert action == "execute_approved" and request.method == "GET"
+        assert request.url.path.endswith("/approval-status")
+        return success(approved())
+    svc, seen = service(tmp_path, handle, metadata=draft(source_vendor="fortinet"))
     assert svc.call(action, arguments)["error"]["code"] == "unsupported_capability"
-    assert len(seen) == 2
+    assert len(seen) == (3 if action == "execute_approved" else 2)
     assert all(req.method == "GET" for req in seen)
 
 

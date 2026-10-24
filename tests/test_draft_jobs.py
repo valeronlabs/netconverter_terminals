@@ -78,12 +78,12 @@ def setup(tmp_path, *, job=None, manifest=None, response=None, capability=None, 
             return success(capability)
         if suffix == "drafts/draft_1":
             return success(binding())
-        if suffix == "jobs/job_1":
+        if suffix == "guided/jobs/job_1":
             return success(job)
-        if suffix == "jobs/job_1/artifacts":
+        if suffix == "guided/jobs/job_1/artifacts":
             assert request.url.params["manifest_revision"] == "5"
             return manifest if isinstance(manifest, httpx.Response) else success(manifest)
-        if suffix == "jobs/job_1/artifacts/" + ART:
+        if suffix == "guided/jobs/job_1/artifacts/" + ART:
             assert request.url.params["manifest_revision"] == "5"
             return response(request) if callable(response) else response
         pytest.fail("Unexpected route")
@@ -296,7 +296,7 @@ def test_large_artifact_limit_does_not_expand_yaml_limit(tmp_path):
             secure_publish_file(workspace, filename, content, digest, max_bytes=MAX_ARTIFACT_BYTES)
 
 
-@pytest.mark.parametrize("path", ["capabilities", "jobs/job_1", "jobs/job_1/artifacts"])
+@pytest.mark.parametrize("path", ["capabilities", "guided/jobs/job_1", "guided/jobs/job_1/artifacts"])
 def test_metadata_stream_limit_stops_before_unbounded_accumulation(path):
     stream = Stream([b"x" * 1_000_000, b"y" * 1_000_000, b"overflow", b"must-not-read"])
     client = DraftClient("synthetic", transport=httpx.MockTransport(lambda req: httpx.Response(200, stream=stream)))

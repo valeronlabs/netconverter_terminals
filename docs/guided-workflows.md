@@ -11,6 +11,13 @@ downloads. The server must implement
 and qualify persistence, per-user isolation, decisions, validation, human review,
 restricted credentials and execution enforcement before enabling this contract.
 
+Approval has one scope: `migration_submission`. It authorizes running the approved
+revision through the conversion pipeline. Preparation can remain `not_evaluated`
+or `needs_review` while submission readiness is `ready_for_submission`; neither
+the approval nor a completed job means the generated configuration is safe to
+deploy. The separate engine verdict, coverage, gaps and device validation remain
+visible. Known parse failures block this initial submission path.
+
 ## CLI walkthrough
 
 Sign in beforehand using existing `netconverter login` or `login --clerk`. These
@@ -46,6 +53,14 @@ server validation and independent human approval in this new contract. Reuse an
 idempotency key only for the same logical request and bytes. After changing input
 or reconciling a revision conflict, use a new key. The server must reject a reused
 key with a different payload; the client does not persist an implicit active draft.
+
+If execution commits but its response is lost, repeat the same execution command
+with the same approval reference and idempotency key. A consumed receipt recovers
+its original job from the immutable execution binding; it cannot create another
+conversion. Revalidation or later edits do not rewrite that earlier job. Recovery
+still checks current authorization, the receipt identity, its submission scope
+and matching approved content hashes. An unconsumed receipt requires current
+validation and submission readiness before a new job can be created.
 
 `draft propose --changes '[...]'` selects minted decision/choice references; richer
 values, renames and interface mappings use manual YAML in this slice. YAML imports
@@ -121,8 +136,9 @@ principal and current policy, never from model arguments.
 ## Proposed REST contract
 
 Paths below are relative to `/external/v1`; all are authenticated and owner-scoped.
-The implementation contract is exercised with synthetic HTTP fixtures, not a server
-implementation. No endpoint may authorize by a caller-supplied tenant or owner.
+The terminal contract tests use synthetic HTTP fixtures. Separate server tests
+qualify persistence and the assembled path; neither proves live deployment.
+No endpoint may authorize by a caller-supplied tenant or owner.
 
 | Action | Method/path | Request/response requirements |
 | --- | --- | --- |
@@ -131,20 +147,26 @@ implementation. No endpoint may authorize by a caller-supplied tenant or owner.
 | Import/propose | `POST /drafts/{id}/proposals` | `expected_revision`; either direct document plus SHA-256 or opaque choices; return same draft with strictly newer revision. |
 | Validate | `POST /drafts/{id}/validate` | `expected_revision`; return validation against that exact revision. |
 | Review | `POST /drafts/{id}/review-requests` | `expected_revision`; return review ID and exact same-origin `/drafts/{id}/reviews/{review_id}` URL, with no query token/fragment. |
-| Approval status | `GET /drafts/{id}/approval-status?revision=n` | Exact draft/revision/reference; approved, human-bound, passed validation, current and validated content hashes equal. |
-| Execute | `POST /jobs` | Only `approved_draft_id`, `draft_revision`, `approval_ref`; server atomically rechecks ownership, current policy/validation, receipt hash/expiry and idempotency. |
+| Approval status | `GET /drafts/{id}/approval-status?revision=n&approval_ref=...` | Exact draft/revision/reference, human-bound and `approval_scope=migration_submission`. An approved receipt requires `submission_readiness=ready_for_submission` and equal current/validated content hashes. A consumed receipt returns the immutable prior execution binding for recovery, even when a newer validation blocks another run. |
+| Execute | `POST /guided/jobs` | Only `approved_draft_id`, `draft_revision`, `approval_ref`; server atomically checks ownership, receipt identity/content and idempotency. Before creating a job it also checks current policy/validation, readiness, approval freshness and active approving session. A consumed receipt can only return its original job. |
 | YAML export | `GET /drafts/{id}/document?revision=n` | Exact draft/revision plus UTF-8 `document` and authenticated `sha256`; bytes never returned to MCP. |
-| Job status | `GET /jobs/{id}` | First read the explicit draft revision. Require matching job/draft/revision, migration kind, vendor pair and content hash; return a typed status and optional integer progress. |
-| Artifact manifest | `GET /jobs/{id}/artifacts?manifest_revision=n` | Require a completed job advertising this manifest revision, repeat the same provenance and artifact descriptor, and verify exact agreement before fetching bytes. |
-| Artifact bytes | `GET /jobs/{id}/artifacts/{artifact_id}?manifest_revision=n` | Authenticated fixed route, no redirects; bounded stream with exact byte length and SHA-256 before local publication. |
+| Job status | `GET /guided/jobs/{id}` | First read the explicit draft revision. Require matching job/draft/revision, migration kind, vendor pair and content hash; return a typed status and optional integer progress. |
+| Artifact manifest | `GET /guided/jobs/{id}/artifacts?manifest_revision=n` | Require a completed job advertising this manifest revision, repeat the same provenance and artifact descriptor, and verify exact agreement before fetching bytes. |
+| Artifact bytes | `GET /guided/jobs/{id}/artifacts/{artifact_id}?manifest_revision=n` | Authenticated fixed route, no redirects; bounded stream with exact byte length and SHA-256 before local publication. |
 | Context | `GET /drafts/{id}/context?revision=n&view_id=...` | Exact revision and view identity; allowlisted fields only. |
-| Evidence | `GET /jobs/{id}/evidence-digest?digest_revision=n` | Exact job and digest revision; projected verdict/coverage. |
+| Evidence | `GET /guided/jobs/{id}/evidence-digest?digest_revision=n` | Exact job and digest revision; projected verdict/coverage. |
 | Catalog | `GET /catalog/{version}/entries/{entry_id}` | Exact catalog version and entry identity; no configuration-derived prose. |
 
 Writes require a caller-supplied `Idempotency-Key` matching `[A-Za-z0-9_-]{8,128}`.
 Auth refresh retains the original body/key; revision conflicts are not retried or
 merged automatically. Unknown server error prose is replaced with fixed safe codes
 and messages. No aggregate tenant counts or credential strings enter errors.
+
+Guided jobs use `/guided/jobs` for submission, status, evidence and downloads.
+The client refuses the ordinary `/jobs` and `/quick/jobs` paths in this mode.
+The restricted server credential must enforce that boundary independently.
+Human verification uses the trusted review page and its separate portal session;
+there is no bridge tool that records or fabricates approval.
 
 Job states are `queued`, `running`, `complete`, `failed` and `stale`. A completed
 job may provide `manifest_revision` and up to ten `artifacts`; both fields must occur
@@ -185,7 +207,7 @@ qualified; ordinary client file behavior is unchanged.
 
 - Server contract, auth #836, isolated staging and real-client end-to-end proof.
 - Catalog semantics, rich conversational edits/selective disclosure, and explicit
-  partial/NEEDS_REVIEW approval. This client currently executes only passed validation.
+  partial coverage acceptance. Submission readiness is separate from the generated output verdict; known parse failures block the initial path.
 - Windows secure file IO and acceptance; bounded private resource cache if warranted.
 - Browser/TUI continuity, built-in AI, optimization/validation draft types and more vendors.
 - Package version/release and public distribution approval. This development slice

@@ -88,11 +88,19 @@ DATA_PROPERTIES = {
     "path": {"type": "string", "maxLength": 4096},
     "review_url": {"type": "string", "maxLength": 2048},
     "enabled": {"type": "boolean"}, "contract_version": {"const": "1"},
-    "approval_mode": {"const": "human_bound"}, "agent_restricted": {"const": True},
+    "approval_mode": {"const": "human_bound"},
+    "approval_scope": {"const": "migration_submission"},
+    "submission_readiness": {"enum": ["ready_for_submission", "blocked"]},
+    "accounting_status": {"enum": ["observed", "partial", "not_instrumented", "unknown"]},
+    "coverage_authority": {"const": "observational"}, "agent_restricted": {"const": True},
     "operations": {"type": "array", "maxItems": len(_ALL_ACTIONS), "uniqueItems": True,
                    "items": {"enum": list(_ALL_ACTIONS)}},
-    "status": {"enum": ["prepared", "needs_input", "ready", "pending_review", "approved", "submitted", "queued", "running", "complete", "failed", "stale"]},
+    "status": {"enum": ["prepared", "needs_input", "ready", "pending_review", "approved", "consumed", "submitted", "queued", "running", "complete", "failed", "stale"]},
     "validation_status": {"enum": ["passed", "failed", "inconclusive", "not_evaluated", "needs_review"]},
+    "engine_validation_status": {"enum": ["passed", "failed", "inconclusive", "not_evaluated", "needs_review"]},
+    "device_validation_status": {"const": "not_evaluated"},
+    "evidence_available": {"type": "boolean"},
+    "counts": _object({key: COUNT_SCHEMA for key in ("checkpoints_total", "checkpoints_failed", "checkpoints_warn", "blocking_issues", "behavior_checks_ran", "behavior_checks_failed", "quality_warnings")}),
     "verdict": {"enum": ["PASS", "FAIL", "INCONCLUSIVE", "NOT_EVALUATED", "NEEDS_REVIEW"]},
     "coverage": _object({key: COUNT_SCHEMA for key in ("parsed", "ignored", "unparsed", "unaccounted")}),
     "required_decisions": {"type": "array", "maxItems": 200, "items": DECISION_SCHEMA},
@@ -201,8 +209,8 @@ def _project(value, schema):
 class DraftClient(ExternalClient):
     """Exact new routes only; inherited transport preserves credential handling."""
     _ALLOWED = re.compile(
-        r"(?:capabilities|jobs|drafts|drafts/[A-Za-z0-9_-]{1,80}(?:/document|/proposals|/validate|/review-requests|/approval-status|/context)?"
-        r"|jobs/[A-Za-z0-9_-]{1,80}(?:/evidence-digest|/artifacts(?:/art_[a-f0-9]{32})?)?"
+        r"(?:capabilities|guided/jobs|drafts|drafts/[A-Za-z0-9_-]{1,80}(?:/document|/proposals|/validate|/review-requests|/approval-status|/context)?"
+        r"|guided/jobs/[A-Za-z0-9_-]{1,80}(?:/evidence-digest|/artifacts(?:/art_[a-f0-9]{32})?)?"
         r"|catalog/[A-Za-z0-9_-]{1,80}/entries/[A-Za-z0-9_-]{1,80})\Z"
     )
 
@@ -222,9 +230,9 @@ class DraftClient(ExternalClient):
     @classmethod
     def _check_route(cls, method, path):
         read_path = (path == "capabilities" or re.fullmatch(r"drafts/[A-Za-z0-9_-]{1,80}(?:/document|/approval-status|/context)?", path)
-                     or re.fullmatch(r"jobs/[A-Za-z0-9_-]{1,80}(?:/evidence-digest|/artifacts(?:/art_[a-f0-9]{32})?)?", path)
+                     or re.fullmatch(r"guided/jobs/[A-Za-z0-9_-]{1,80}(?:/evidence-digest|/artifacts(?:/art_[a-f0-9]{32})?)?", path)
                      or re.fullmatch(r"catalog/[A-Za-z0-9_-]{1,80}/entries/[A-Za-z0-9_-]{1,80}", path))
-        write_path = path in {"drafts", "jobs"} or re.fullmatch(r"drafts/[A-Za-z0-9_-]{1,80}/(?:proposals|validate|review-requests)", path)
+        write_path = path in {"drafts", "guided/jobs"} or re.fullmatch(r"drafts/[A-Za-z0-9_-]{1,80}/(?:proposals|validate|review-requests)", path)
         if not cls._ALLOWED.fullmatch(path) or not ((method == "GET" and read_path) or (method == "POST" and write_path)):
             raise ValueError("Unsupported draft method or path")
 
@@ -289,7 +297,7 @@ class DraftClient(ExternalClient):
 
     def artifact_bytes(self, job_id, artifact_id, manifest_revision, expected_bytes, expected_sha256):
         """Read an exact authenticated artifact, bounded before accumulation."""
-        path = f"jobs/{_identifier(job_id)}/artifacts/{artifact_id}"
+        path = f"guided/jobs/{_identifier(job_id)}/artifacts/{artifact_id}"
         if (type(expected_bytes) is not int or not 0 < expected_bytes <= MAX_ARTIFACT_BYTES or
                 not _digest(expected_sha256)):
             raise DraftError("artifact_invalid")
@@ -485,17 +493,21 @@ class DraftService:
             return self._response(self.client.request("POST", route + "/proposals", idempotency_key=key, json=body), draft_id, revision, changed=True)
         if action == "execute_approved":
             approval_ref = _identifier(args["approval_ref"])
-            current = self._current_draft(draft_id, revision)
-            approval = self.client.request("GET", route + "/approval-status", params={"revision": revision})
+            approval = self.client.request("GET", route + "/approval-status",
+                                           params={"revision": revision, "approval_ref": approval_ref})
             if (not isinstance(approval, dict) or approval.get("draft_id") != draft_id or
                     type(approval.get("revision")) is not int or approval.get("revision") != revision or
-                    approval.get("approval_ref") != approval_ref or approval.get("status") != "approved" or
-                    approval.get("human_bound") is not True or approval.get("validation_status") != "passed" or
+                    approval.get("approval_ref") != approval_ref or approval.get("status") not in {"approved", "consumed"} or
+                    approval.get("human_bound") is not True or approval.get("submission_readiness") != "ready_for_submission" or
+                    approval.get("approval_scope") != "migration_submission" or
                     not _digest(approval.get("content_sha256")) or
-                    approval.get("content_sha256") != current.get("content_sha256") or
                     approval.get("content_sha256") != approval.get("validated_content_sha256")):
                 raise DraftError("approval_required")
-            data = self.client.request("POST", "jobs", idempotency_key=key,
+            if approval["status"] == "approved":
+                current = self._current_draft(draft_id, revision)
+                if approval["content_sha256"] != current.get("content_sha256"):
+                    raise DraftError("approval_required")
+            data = self.client.request("POST", "guided/jobs", idempotency_key=key,
                 json={"approved_draft_id": draft_id, "draft_revision": revision, "approval_ref": approval_ref})
             projected = self._project_data(data)
             _identifier(projected.get("job_id"))
@@ -546,7 +558,7 @@ class DraftService:
         content_sha256 = current.get("content_sha256")
         if not _digest(content_sha256):
             raise DraftError("invalid_response")
-        job = self._job_binding(self.client.request("GET", f"jobs/{job_id}"), job_id, draft_id, revision, content_sha256)
+        job = self._job_binding(self.client.request("GET", f"guided/jobs/{job_id}"), job_id, draft_id, revision, content_sha256)
         if job.get("status") not in JOB_STATUSES:
             raise DraftError("invalid_response")
         artifacts = self._artifact_set(job)
@@ -561,7 +573,7 @@ class DraftService:
             raise DraftError("not_found")
         if job.get("manifest_revision") != manifest_revision:
             raise DraftError("revision_conflict")
-        manifest = self._job_binding(self.client.request("GET", f"jobs/{job_id}/artifacts",
+        manifest = self._job_binding(self.client.request("GET", f"guided/jobs/{job_id}/artifacts",
                                      params={"manifest_revision": manifest_revision}),
                                      job_id, draft_id, revision, content_sha256)
         manifest_artifacts = self._artifact_set(manifest)
@@ -608,7 +620,7 @@ class DraftService:
         if action == "read_evidence":
             self._arguments(args, ("job_id", "digest_revision"))
             job_id, revision = _identifier(args["job_id"]), _revision(args["digest_revision"])
-            data = self.client.request("GET", f"jobs/{job_id}/evidence-digest", params={"digest_revision": revision})
+            data = self.client.request("GET", f"guided/jobs/{job_id}/evidence-digest", params={"digest_revision": revision})
             result = self._project_data(data)
             if result.get("job_id") != job_id or result.get("digest_revision") != revision:
                 raise DraftError("invalid_response")
