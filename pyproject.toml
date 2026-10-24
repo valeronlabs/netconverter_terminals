@@ -42,7 +42,7 @@ Changelog = "https://github.com/valeronlabs/netconverter_terminals/blob/main/CHA
 netconverter = "netconverter_cli.cli:main"
 
 [dependency-groups]
-dev = ["pytest>=8", "pytest-asyncio>=0.25", "build>=1"]
+dev = ["pytest>=8", "pytest-asyncio>=0.25", "build>=1", "jsonschema>=4.23"]
 
 [tool.hatch.build.targets.sdist]
 include = ["src/netconverter_cli", "tests", "docs", "README.md", "CHANGELOG.md", "LICENSE",

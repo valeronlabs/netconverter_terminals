@@ -76,7 +76,7 @@ def _clerk_session():
     return session if session.signed_in else None
 
 
-def rest_credential(server, settings):
+def rest_credential(server, settings, *, interactive=True):
     """The credential plain commands use: a stored key, else the sign-in.
 
     NETCONVERTER_AUTH=key|clerk (the user's environment, never the workspace's
@@ -93,7 +93,10 @@ def rest_credential(server, settings):
             raise SystemExit("Not signed in; run `netconverter login --clerk`")
         return session
     if mode == "key":
-        return get_secret(account(server))
+        key = get_secret(account(server)) if interactive else get_secret(account(server), prompt=False)
+        if not key:
+            raise SystemExit("No NetConverter API key; run `netconverter login` first.")
+        return key
     key = get_secret(account(server), prompt=False)
     if key:
         return key
@@ -101,7 +104,7 @@ def rest_credential(server, settings):
         session = _clerk_session()
         if session is not None:
             return session
-    if not keyring_available():
+    if not keyring_available() and interactive:
         return get_secret(account(server))  # no credential store: a memory-only key prompt
     raise SystemExit(f"No NetConverter credential for {server}. Run `netconverter login --clerk` to "
                      "sign in with your account, or `netconverter login` to store an API key.")
@@ -221,14 +224,17 @@ def run_mcp(args):
     rest, remote_credential, source, notes = choose_mcp_credential(args.auth, args.server, mcp_url)
     for note in notes:
         print(f"netconverter mcp: {note}", file=sys.stderr)
-    strict = bool(getattr(args, "strict", False))
+    guided = bool(getattr(args, "guided", False))
+    strict = bool(getattr(args, "strict", False)) or guided
     remote = None
-    if remote_credential is not None and not args.no_remote:
+    if remote_credential is not None and not args.no_remote and not guided:
         # --strict asks the server for its strict view on every request (#15).
         remote = RemoteMCP(mcp_url, remote_credential, client_version=__version__,
                            **({"view_mode": "strict"} if strict else {}))
     try:
-        run_stdio(Bridge(args.workspace, args.server, rest, remote, strict=strict, credential_source=source))
+        options = {"guided": True} if guided else {}
+        run_stdio(Bridge(args.workspace, args.server, rest, remote, strict=strict,
+                         credential_source=source, **options))
     finally:
         if remote:
             remote.close()
@@ -346,7 +352,7 @@ def _connect_one(args, root, ask):
 ACCOUNT_COMMANDS = frozenset({"login", "logout", "whoami", "update"})
 # No passive update notice: the MCP server's stdout is the protocol stream, and
 # `update` reports versions itself.
-NO_UPDATE_NOTICE = frozenset({"mcp", "update"})
+NO_UPDATE_NOTICE = frozenset({"mcp", "update", "draft"})
 
 
 # Used when the current folder can't be written (a shell sitting in "/", a
@@ -430,6 +436,8 @@ def parser():
                           "default from NETCONVERTER_MCP_AUTH, else NETCONVERTER_AUTH")
     mcp.add_argument("--mcp-url", default=os.getenv("NETCONVERTER_MCP_URL"))
     mcp.add_argument("--no-remote", action="store_true", help="serve only the local file tools")
+    mcp.add_argument("--guided", action="store_true",
+                     help="revisioned draft tools with human approval; requires server capability")
     mcp.add_argument("--strict", action="store_true", default=os.getenv("NETCONVERTER_MCP_STRICT") == "1",
                      help="proxy only the strict-view remote tools (summaries, names as tokens)")
     mcp.add_argument("--workspace", default=argparse.SUPPRESS, help="folder the file tools may read and write")
@@ -444,6 +452,8 @@ def parser():
     update.add_argument("--check", action="store_true", help="only report whether a newer release exists")
     update.add_argument("--yes", action="store_true", help="install without asking")
     subs.add_parser("capabilities", help="vendors, conversion paths and limits for your credential")
+    from .draft_cli import add_parser as add_draft_parser
+    add_draft_parser(subs)
     subs.add_parser("setup")
     subs.add_parser("jobs")
     resume = subs.add_parser("resume")
@@ -506,6 +516,22 @@ def main(argv=None):
         return
     if args.command == "connect":
         run_connect(args)
+        return
+    if args.command == "draft":
+        from .draft_cli import run as run_draft
+
+        try:
+            credential = rest_credential(args.server, settings, interactive=False)
+        except SystemExit:
+            print(json.dumps({"schema_version": "1", "ok": False, "error": {
+                "code": "access_denied",
+                "message": "Sign in or configure a credential for this trusted server before using drafts."
+            }}))
+            raise SystemExit(1) from None
+        result = run_draft(args, credential)
+        print(json.dumps(result, sort_keys=True))
+        if not result["ok"]:
+            raise SystemExit(1)
         return
     if args.command == "login":
         key = getpass.getpass("NetConverter API key (hidden): ").strip()

@@ -44,6 +44,10 @@ Run `netconverter capabilities` to see exactly what your credential can do.
 A 0.1.x **Terminal Quick pilot key** still works and keeps its ASA → Palo Alto
 scope; the app labels it as such.
 
+Development preview: [revisioned drafts and guided MCP](docs/guided-workflows.md)
+adds an opt-in client contract for manual YAML and reviewed migration preparation.
+It requires explicit server support and is not enabled by an ordinary MCP connection.
+
 ## Start here
 
 One line installs everything (uv, the CLI from PyPI), signs you in and connects

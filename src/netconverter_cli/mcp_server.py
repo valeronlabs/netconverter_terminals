@@ -27,6 +27,8 @@ from .backend import EXTERNAL_MAX_BYTES, detect_profile, download_external, subm
 from .clerk import ClerkError
 from .controller import fetch_artifacts
 from .credentials import keyring_problem
+from . import mcp_workflows
+from .drafts import DraftClient, DraftService
 from .privacy import STATUSES
 from .remote_mcp import RemoteError, RemoteMCP
 from .workspace import MAX_CONFIG_BYTES, Workspace, WorkspaceError
@@ -276,12 +278,15 @@ class Bridge:
     """Implements the local tools and proxies the remote catalogue."""
 
     def __init__(self, workspace, server: str, rest_credential=None, remote: RemoteMCP | None = None,
-                 *, transport=None, strict: bool = False, credential_source: str | None = None):
+                 *, transport=None, strict: bool = False, credential_source: str | None = None,
+                 guided: bool = False, draft_service=None):
         self.workspace = Workspace(workspace)
         # Which credential this process runs on (#16): clerk_session, api_key_environment,
         # api_key_stored or none; the same one serves REST and the remote tools.
         self.credential_source = credential_source
-        self.strict = bool(strict)
+        self.guided = bool(guided)
+        self.strict = bool(strict or guided)
+        self._draft_service = draft_service
         self.remote_allowlist = REMOTE_TOOLS_STRICT if self.strict else REMOTE_TOOLS_DEFAULT
         self.server = server
         self.rest_credential = rest_credential
@@ -320,6 +325,8 @@ class Bridge:
     # -- local tools -------------------------------------------------------
 
     def submit_file(self, path=None, source_vendor=None, target_vendor=None, job_type="convert", options=None):
+        if self.guided:
+            raise ToolFailure("approval_required", "Guided mode requires the approved draft execution path")
         if not isinstance(path, str) or not path:
             raise ToolFailure("invalid_arguments", "path is required")
         job_type = job_type or "convert"
@@ -464,6 +471,8 @@ class Bridge:
         return out
 
     def account(self):
+        if self.guided:
+            return self._guided_request("capabilities", {})
         kind, job_types = self.profile()
         out = {"profile": "terminal_quick" if kind == "quick" else "full_api",
                "job_types": sorted(job_types), "rate_limit_per_min": None, "daily_quota": None,
@@ -509,7 +518,13 @@ class Bridge:
         self._log("account")
         return out
 
-    def download(self, job_id=None, dest_dir="."):
+    def download(self, job_id=None, dest_dir=".", *, draft_id=None, revision=None):
+        if self.guided:
+            if job_id is not None or dest_dir != ".":
+                return mcp_workflows.error("invalid_arguments", "Guided download requires only draft_id and revision")
+            return self._guided_request("export_document", {"draft_id": draft_id, "revision": revision})
+        if draft_id is not None or revision is not None:
+            raise ToolFailure("invalid_arguments", "Draft download requires guided mode")
         if not isinstance(job_id, str) or not _JOB_ID.fullmatch(job_id):
             raise ToolFailure("invalid_arguments", "job_id must be a NetConverter job id")
         try:
@@ -591,7 +606,56 @@ class Bridge:
 
     # -- catalogue ---------------------------------------------------------
 
+    def _guided_request(self, action, arguments):
+        """Fresh service authorization; never route guided errors through legacy prose."""
+        client = None
+        try:
+            if self._draft_service is None:
+                client = self._client(DraftClient)
+                service = DraftService(self.workspace, client)
+            else:
+                service = self._draft_service
+            return service.capabilities() if action == "capabilities" else service.call(action, arguments)
+        except (ToolFailure, ClerkError):
+            return mcp_workflows.error("access_denied", "Sign in with NetConverter in a terminal, then retry")
+        except Exception:
+            # An exception can contain upstream response bytes. Do not stringify it.
+            return mcp_workflows.error("request_failed", "The guided request failed; no configuration content was returned")
+        finally:
+            if client is not None:
+                client.close()
+
+    def _guided_call(self, name, arguments):
+        if not isinstance(arguments, dict):
+            payload = mcp_workflows.error("invalid_arguments", "Tool arguments must be an object")
+        elif name == "account":
+            payload = (self._guided_request("capabilities", {}) if not arguments else
+                       mcp_workflows.error("invalid_arguments", "Account takes no arguments"))
+        elif name in mcp_workflows.TASK_NAMES:
+            payload = self._guided_request(name, arguments)
+        elif name == "download":
+            # Reject legacy job_id and path overrides before reaching the service.
+            payload = (self._guided_request("export_document", arguments)
+                       if set(arguments) == {"draft_id", "revision"} else
+                       mcp_workflows.error("invalid_arguments", "Guided download requires only draft_id and revision"))
+        elif name == "submit_file":
+            payload = mcp_workflows.error("approval_required", "Guided mode requires the approved draft execution path")
+        else:
+            payload = mcp_workflows.error("unsupported_capability", "This tool is unavailable in guided mode; call tools/list")
+        return mcp_workflows.tool_result(payload)
+
+    def resource_templates(self):
+        return mcp_workflows.templates_for(self._guided_request("capabilities", {})) if self.guided else []
+
+    def read_resource(self, uri):
+        action, arguments = mcp_workflows.parse_resource(uri)
+        payload = self._guided_request(action, arguments)
+        return {"contents": [{"uri": uri, "mimeType": "application/json",
+                              "text": json.dumps(payload, sort_keys=True)}]}
+
     def list_tools(self) -> list[dict]:
+        if self.guided:
+            return mcp_workflows.tools_for(self._guided_request("capabilities", {}))
         tools = [json.loads(json.dumps(tool)) for tool in LOCAL_TOOLS]
         self._remote_names = {}
         if self.remote is None:
@@ -615,6 +679,8 @@ class Bridge:
         return tools
 
     def call(self, name: str, arguments: dict) -> dict:
+        if self.guided:
+            return self._guided_call(name, arguments)
         if name in LOCAL_NAMES:
             try:
                 result = getattr(self, name)(**arguments)
@@ -675,7 +741,7 @@ class StdioServer:
             return _rpc_error(message.get("id") if isinstance(message, dict) else None, -32600, "Invalid request")
         method, request_id = message["method"], message.get("id")
         is_notification = "id" not in message
-        params = message.get("params") or {}
+        params = message.get("params", {})
         if not isinstance(params, dict):
             return None if is_notification else _rpc_error(request_id, -32602, "Invalid params")
         if is_notification:
@@ -692,12 +758,36 @@ class StdioServer:
                 "serverInfo": {"name": SERVER_NAME, "version": __version__},
                 "instructions": INSTRUCTIONS,
             }
+            if self.bridge.guided:
+                result["capabilities"].update(resources={"subscribe": False, "listChanged": False},
+                                              prompts={"listChanged": False})
+                result["instructions"] = mcp_workflows.INSTRUCTIONS
         elif method == "ping":
             result = {}
         elif method == "tools/list":
             result = {"tools": self.bridge.list_tools()}
+        elif self.bridge.guided and method == "resources/list":
+            result = {"resources": []}
+        elif self.bridge.guided and method == "resources/templates/list":
+            result = {"resourceTemplates": self.bridge.resource_templates()}
+        elif self.bridge.guided and method == "resources/read":
+            if "uri" not in params or not set(params) <= {"uri", "_meta"}:
+                return _rpc_error(request_id, -32602, "resources/read requires one URI")
+            try:
+                result = self.bridge.read_resource(params.get("uri"))
+            except ValueError:
+                return _rpc_error(request_id, -32602, "Unknown or invalid guided resource URI")
+        elif self.bridge.guided and method == "prompts/list":
+            result = {"prompts": list(mcp_workflows.PROMPTS)}
+        elif self.bridge.guided and method == "prompts/get":
+            if not set(params) <= {"name", "arguments", "_meta"} or not isinstance(params.get("name"), str):
+                return _rpc_error(request_id, -32602, "prompts/get requires a supported prompt name")
+            try:
+                result = mcp_workflows.prompt(params["name"], params.get("arguments"))
+            except ValueError:
+                return _rpc_error(request_id, -32602, "Unknown prompt or unsupported prompt arguments")
         elif method == "tools/call":
-            name, arguments = params.get("name"), params.get("arguments") or {}
+            name, arguments = params.get("name"), params.get("arguments", {})
             if not isinstance(name, str) or not isinstance(arguments, dict):
                 return _rpc_error(request_id, -32602, "tools/call needs a name and an arguments object")
             meta = params.get("_meta") if isinstance(params.get("_meta"), dict) else {}
@@ -711,11 +801,15 @@ class StdioServer:
             try:
                 result = self.bridge.call(name, arguments)
             except Exception:
-                result = _error_result("internal_error", "The local bridge failed; no configuration content was returned")
+                if self.bridge.guided:
+                    result = mcp_workflows.tool_result(mcp_workflows.error(
+                        "request_failed", "The guided request failed; no configuration content was returned"))
+                else:
+                    result = _error_result("internal_error", "The local bridge failed; no configuration content was returned")
             finally:
                 self.bridge.progress = None
         else:
-            return _rpc_error(request_id, -32601, f"Method not found: {method[:80]}")
+            return _rpc_error(request_id, -32601, "Method not found" if self.bridge.guided else f"Method not found: {method[:80]}")
         return {"jsonrpc": "2.0", "id": request_id, "result": result}
 
     def serve(self, instream, outstream) -> None:
