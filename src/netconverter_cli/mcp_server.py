@@ -42,6 +42,7 @@ WAIT_MAX_S = 600
 # Below the 60 s tool timeout Codex and OpenClaw apply by default (#18): a job
 # still running when the wait ends is reported, not cut off mid-call.
 WAIT_DEFAULT_S = 45
+_UNSET_TIMEOUT = object()
 WAIT_AGAIN = "still running; call wait_for_job again (or job_status) for the result"
 # Pipeline stage names a status may report; anything else is left out.
 STAGES = frozenset({"queued", "initializing", "parsing", "extracting", "mapping", "translating",
@@ -437,12 +438,24 @@ class Bridge:
                 out[field] = data[field]
         return out
 
-    def job_status(self, job_id=None):
+    def job_status(self, job_id=None, *, draft_id=None, revision=None):
+        if self.guided:
+            return self._guided_job_status({"job_id": job_id, "draft_id": draft_id, "revision": revision})
+        if draft_id is not None or revision is not None:
+            raise ToolFailure("invalid_arguments", "Draft-qualified status requires guided mode")
         out = self._job_summary(job_id)
         self._log("job_status", job_id=job_id, status=out.get("verdict") or out["status"])
         return out
 
-    def wait_for_job(self, job_id=None, timeout_s=WAIT_DEFAULT_S):
+    def wait_for_job(self, job_id=None, timeout_s=_UNSET_TIMEOUT, *, draft_id=None, revision=None):
+        if self.guided:
+            args = {"job_id": job_id, "draft_id": draft_id, "revision": revision}
+            if timeout_s is not _UNSET_TIMEOUT:
+                args["timeout_s"] = timeout_s
+            return self._guided_wait(args)
+        if draft_id is not None or revision is not None:
+            raise ToolFailure("invalid_arguments", "Draft-qualified waiting requires guided mode")
+        timeout_s = WAIT_DEFAULT_S if timeout_s is _UNSET_TIMEOUT else timeout_s
         if isinstance(timeout_s, bool) or not isinstance(timeout_s, (int, float)) or not 0 <= timeout_s <= WAIT_MAX_S:
             raise ToolFailure("invalid_arguments", f"timeout_s must be between 0 and {WAIT_MAX_S} seconds")
         start = self._clock()
@@ -518,12 +531,16 @@ class Bridge:
         self._log("account")
         return out
 
-    def download(self, job_id=None, dest_dir=".", *, draft_id=None, revision=None):
+    def download(self, job_id=None, dest_dir=".", *, draft_id=None, revision=None,
+                 artifact_id=None, manifest_revision=None):
         if self.guided:
-            if job_id is not None or dest_dir != ".":
-                return mcp_workflows.error("invalid_arguments", "Guided download requires only draft_id and revision")
-            return self._guided_request("export_document", {"draft_id": draft_id, "revision": revision})
-        if draft_id is not None or revision is not None:
+            if dest_dir != ".":
+                return mcp_workflows.error("invalid_arguments", "Guided downloads use the configured workspace")
+            args = {"draft_id": draft_id, "revision": revision}
+            if job_id is not None or artifact_id is not None or manifest_revision is not None:
+                args.update(job_id=job_id, artifact_id=artifact_id, manifest_revision=manifest_revision)
+            return self._guided_download(args)
+        if any(value is not None for value in (draft_id, revision, artifact_id, manifest_revision)):
             raise ToolFailure("invalid_arguments", "Draft download requires guided mode")
         if not isinstance(job_id, str) or not _JOB_ID.fullmatch(job_id):
             raise ToolFailure("invalid_arguments", "job_id must be a NetConverter job id")
@@ -606,12 +623,18 @@ class Bridge:
 
     # -- catalogue ---------------------------------------------------------
 
-    def _guided_request(self, action, arguments):
+    def _guided_request(self, action, arguments, *, deadline=None):
         """Fresh service authorization; never route guided errors through legacy prose."""
         client = None
         try:
             if self._draft_service is None:
-                client = self._client(DraftClient)
+                if deadline is None:
+                    client = self._client(DraftClient)
+                elif self.rest_credential is None:
+                    raise _no_credential()
+                else:
+                    client = DraftClient(self.rest_credential, self.server, transport=self._transport,
+                                         deadline=deadline, clock=self._clock)
                 service = DraftService(self.workspace, client)
             else:
                 service = self._draft_service
@@ -625,6 +648,68 @@ class Bridge:
             if client is not None:
                 client.close()
 
+    @staticmethod
+    def _guided_job_arguments(arguments, *, waiting=False):
+        required = {"job_id", "draft_id", "revision"}
+        optional = {"timeout_s"} if waiting else set()
+        if not isinstance(arguments, dict) or not required <= set(arguments) or not set(arguments) <= required | optional:
+            return False
+        if any(not isinstance(arguments[field], str) or not _JOB_ID.fullmatch(arguments[field])
+               for field in ("job_id", "draft_id")):
+            return False
+        if type(arguments["revision"]) is not int or arguments["revision"] <= 0:
+            return False
+        if waiting:
+            value = arguments.get("timeout_s", mcp_workflows.WAIT_DEFAULT_S)
+            if type(value) is not int or not 0 <= value <= mcp_workflows.WAIT_MAX_S:
+                return False
+        return True
+
+    def _guided_job_status(self, arguments, *, deadline=None):
+        if not self._guided_job_arguments(arguments):
+            return mcp_workflows.error("invalid_arguments", "Provide explicit job_id, draft_id and positive revision")
+        return self._guided_request("get_job_status", arguments, deadline=deadline)
+
+    def _guided_wait(self, arguments):
+        if not self._guided_job_arguments(arguments, waiting=True):
+            return mcp_workflows.error("invalid_arguments", "Provide explicit job and draft handles with an integer timeout_s from 0 to 45")
+        timeout = arguments.get("timeout_s", mcp_workflows.WAIT_DEFAULT_S)
+        handles = {field: arguments[field] for field in ("job_id", "draft_id", "revision")}
+        start = self._clock()
+        deadline = start + timeout
+        # A zero polling budget still takes one fresh snapshot, with bounded I/O.
+        request_deadline = deadline if timeout else start + 10
+        result = self._guided_job_status(handles, deadline=request_deadline)
+        delay, polls = 2.0, 1
+        while result.get("ok") is True:
+            status = result["data"].get("status")
+            if status not in {"queued", "running", "complete", "failed", "stale"}:
+                return mcp_workflows.error("invalid_response", "The server returned no supported job status")
+            if self.progress is not None:
+                self.progress(polls, f"status: {status}")
+            remaining = deadline - self._clock()
+            if status not in {"queued", "running"} or remaining <= 0:
+                break
+            self._sleep(min(delay, remaining))
+            if self._clock() >= deadline:
+                break
+            result = self._guided_job_status(handles, deadline=deadline)
+            delay = min(delay * 1.5, 10.0)
+            polls += 1
+        if result.get("ok") is not True:
+            return result  # Never return a previously authorized snapshot after revocation.
+        return {**result, "data": {**result["data"],
+                "waited_s": round(max(0.0, self._clock() - start), 3),
+                "timed_out": result["data"]["status"] in {"queued", "running"}}}
+
+    def _guided_download(self, arguments):
+        fields = set(arguments)
+        if fields == {"draft_id", "revision"}:
+            return self._guided_request("export_document", arguments)
+        if fields == {"job_id", "draft_id", "revision", "artifact_id", "manifest_revision"}:
+            return self._guided_request("download_artifact", arguments)
+        return mcp_workflows.error("invalid_arguments", "Download requires a draft revision or complete job artifact handles")
+
     def _guided_call(self, name, arguments):
         if not isinstance(arguments, dict):
             payload = mcp_workflows.error("invalid_arguments", "Tool arguments must be an object")
@@ -633,11 +718,12 @@ class Bridge:
                        mcp_workflows.error("invalid_arguments", "Account takes no arguments"))
         elif name in mcp_workflows.TASK_NAMES:
             payload = self._guided_request(name, arguments)
+        elif name == "job_status":
+            payload = self._guided_job_status(arguments)
+        elif name == "wait_for_job":
+            payload = self._guided_wait(arguments)
         elif name == "download":
-            # Reject legacy job_id and path overrides before reaching the service.
-            payload = (self._guided_request("export_document", arguments)
-                       if set(arguments) == {"draft_id", "revision"} else
-                       mcp_workflows.error("invalid_arguments", "Guided download requires only draft_id and revision"))
+            payload = self._guided_download(arguments)
         elif name == "submit_file":
             payload = mcp_workflows.error("approval_required", "Guided mode requires the approved draft execution path")
         else:

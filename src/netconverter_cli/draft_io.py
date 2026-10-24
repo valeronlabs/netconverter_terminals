@@ -16,9 +16,18 @@ import uuid
 from .workspace import MAX_CONFIG_BYTES, Workspace, WorkspaceError
 
 MAX_DOCUMENT_BYTES = 1_000_000
+MAX_ARTIFACT_BYTES = 32 * 1024 * 1024
 
 
 def secure_publish(workspace: Workspace, draft_id: str, revision: int, content: bytes, sha256: str) -> Path:
+    if (not isinstance(draft_id, str) or not re.fullmatch(r"[A-Za-z0-9_-]{1,80}", draft_id) or
+            type(revision) is not int or revision <= 0):
+        raise WorkspaceError("Invalid draft artifact")
+    return secure_publish_file(workspace, f"{draft_id}.revision-{revision}.yaml", content, sha256,
+                               max_bytes=MAX_DOCUMENT_BYTES)
+
+
+def secure_publish_file(workspace: Workspace, filename: str, content: bytes, sha256: str, *, max_bytes: int) -> Path:
     """Publish verified bytes through held no-follow directory descriptors.
 
     Existing regular files are compared through a bounded descriptor read.
@@ -28,12 +37,11 @@ def secure_publish(workspace: Workspace, draft_id: str, revision: int, content: 
     if (os.name != "posix" or not hasattr(os, "O_NOFOLLOW") or not hasattr(os, "O_DIRECTORY") or
             any(fn not in os.supports_dir_fd for fn in (os.open, os.stat, os.link, os.unlink))):
         raise WorkspaceError("Secure draft file access is unavailable on this platform")
-    if (not isinstance(draft_id, str) or not re.fullmatch(r"[A-Za-z0-9_-]{1,80}", draft_id) or
-            type(revision) is not int or revision <= 0 or not isinstance(content, bytes) or
-            not 0 < len(content) <= MAX_DOCUMENT_BYTES or not isinstance(sha256, str) or
+    if (not isinstance(filename, str) or not re.fullmatch(r"[A-Za-z0-9_-][A-Za-z0-9._-]{0,200}", filename) or
+            ".." in filename or type(max_bytes) is not int or not 0 < max_bytes <= MAX_ARTIFACT_BYTES or
+            not isinstance(content, bytes) or not 0 < len(content) <= max_bytes or not isinstance(sha256, str) or
             not re.fullmatch(r"[a-f0-9]{64}", sha256) or hashlib.sha256(content).hexdigest() != sha256):
         raise WorkspaceError("Invalid draft artifact")
-    filename = f"{draft_id}.revision-{revision}.yaml"
     descriptors, links = [], []
     temporary = None
     published = False

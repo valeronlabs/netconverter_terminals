@@ -47,6 +47,15 @@ def add_parser(subparsers):
         if name == "execute":
             command.add_argument("--approval-ref", required=True,
                                  help="reference issued after independent human review of this revision")
+    for name in ("job-status", "download-result"):
+        command = commands.add_parser(name, help="inspect a draft execution" if name == "job-status"
+                                      else "download one verified artifact from a draft execution")
+        command.add_argument("job_id")
+        command.add_argument("--draft-id", required=True)
+        command.add_argument("--revision", type=_revision, required=True)
+        if name == "download-result":
+            command.add_argument("--artifact-id", required=True)
+            command.add_argument("--manifest-revision", type=_revision, required=True)
     return draft
 
 
@@ -57,9 +66,11 @@ def run(args, credential) -> dict:
         "prepare": "prepare_draft", "decisions": "get_required_decisions",
         "export": "export_document", "import": "propose_changes", "propose": "propose_changes",
         "validate": "validate_draft", "review": "request_review", "execute": "execute_approved",
+        "job-status": "get_job_status", "download-result": "download_artifact",
     }
     fields = ("path", "source_vendor", "target_vendor", "workflow", "idempotency_key",
-              "draft_id", "revision", "yaml_path", "approval_ref")
+              "draft_id", "revision", "yaml_path", "approval_ref", "job_id", "artifact_id",
+              "manifest_revision")
     arguments = {name: getattr(args, name) for name in fields if hasattr(args, name)}
     if args.draft_command == "propose":
         try:

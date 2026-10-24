@@ -72,6 +72,18 @@ def test_all_mutations_require_explicit_retry_key():
             cli.parser().parse_args(["draft", *arguments])
 
 
+@pytest.mark.parametrize("arguments", [
+    ["job-status", "job_1", "--revision", "1"],
+    ["job-status", "job_1", "--draft-id", "draft_1", "--revision", "0"],
+    ["download-result", "job_1", "--draft-id", "draft_1", "--revision", "1"],
+    ["download-result", "job_1", "--draft-id", "draft_1", "--revision", "1",
+     "--artifact-id", "art_" + "a" * 32, "--manifest-revision", "0"],
+])
+def test_job_commands_require_explicit_provenance(arguments):
+    with pytest.raises(SystemExit):
+        cli.parser().parse_args(["draft", *arguments])
+
+
 def test_bad_proposal_json_is_safe_and_does_not_call_server(tmp_path, monkeypatch, capsys):
     install_transport(monkeypatch, lambda request: pytest.fail("invalid JSON reached network"))
     with pytest.raises(SystemExit):
@@ -101,6 +113,9 @@ def test_manual_yaml_workflow_uses_revisions_without_ai(tmp_path, monkeypatch, c
     state = {"revision": 1, "document": "decisions: {}\n", "approved": False}
     requests = []
     sha = lambda value: hashlib.sha256(value.encode()).hexdigest()
+    artifact = b"set deviceconfig system hostname SYNTHETIC_PRIVATE_CANARY\n"
+    descriptor = {"artifact_id": "art_" + "a" * 32, "kind": "target_config",
+                  "sha256": hashlib.sha256(artifact).hexdigest(), "bytes": len(artifact)}
 
     def metadata(**extra):
         return {"draft_id": "draft_1", "revision": state["revision"], "draft_kind": "migration",
@@ -118,7 +133,7 @@ def test_manual_yaml_workflow_uses_revisions_without_ai(tmp_path, monkeypatch, c
             return response({"guided_workflows": {
                 "contract_version": "1", "enabled": True, "approval_mode": "human_bound",
                 "agent_restricted": True, "view_mode": "strict", "view_enforced_by": "server",
-                "operations": list(drafts.ACTIONS),
+                "operations": list(drafts.ACTIONS + drafts.JOB_ACTIONS),
                 "migration_pairs": [{"source_vendor": "cisco_asa", "target_vendor": "palo_alto_set"}],
             }})
         if request.method == "GET" and path.startswith("drafts/"):
@@ -153,6 +168,16 @@ def test_manual_yaml_workflow_uses_revisions_without_ai(tmp_path, monkeypatch, c
             assert json.loads(request.content) == {"approved_draft_id": "draft_1",
                 "draft_revision": 2, "approval_ref": "approval_1"}
             return response({"job_id": "job_1", "status": "queued"})
+        if path == "jobs/job_1":
+            return response(metadata(job_id="job_1", status="complete", progress=100,
+                manifest_revision=1, artifacts=[descriptor], raw_output=artifact.decode()))
+        if path == "jobs/job_1/artifacts":
+            assert request.url.params["manifest_revision"] == "1"
+            return response(metadata(job_id="job_1", manifest_revision=1, artifacts=[descriptor]))
+        if path == "jobs/job_1/artifacts/" + descriptor["artifact_id"]:
+            assert request.url.params["manifest_revision"] == "1"
+            return httpx.Response(200, stream=httpx.ByteStream(artifact),
+                                  headers={"Content-Length": str(len(artifact))})
         pytest.fail("Unexpected contract route")
 
     install_transport(monkeypatch, server)
@@ -188,5 +213,11 @@ def test_manual_yaml_workflow_uses_revisions_without_ai(tmp_path, monkeypatch, c
     assert not any(r.method == "POST" and r.url.path.endswith("/jobs") for r in requests)
     state["approved"] = True  # separate synthetic human action, never a client tool
     assert invoke(*execute)["data"]["job_id"] == "job_1"
+    status = invoke("job-status", "job_1", "--draft-id", "draft_1", "--revision", "2")
+    assert status["data"]["artifacts"] == [descriptor]
+    downloaded = invoke("download-result", "job_1", "--draft-id", "draft_1", "--revision", "2",
+                        "--artifact-id", descriptor["artifact_id"], "--manifest-revision", "1")
+    assert Path(downloaded["data"]["path"]).read_bytes() == artifact
+    assert downloaded["data"]["sha256"] == descriptor["sha256"]
     assert (tmp_path / "source.cfg").read_text() == source
     assert len([r for r in requests if r.method == "POST" and r.url.path.endswith("/jobs")]) == 1

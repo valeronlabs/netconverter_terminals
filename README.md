@@ -45,7 +45,8 @@ A 0.1.x **Terminal Quick pilot key** still works and keeps its ASA → Palo Alto
 scope; the app labels it as such.
 
 Development preview: [revisioned drafts and guided MCP](docs/guided-workflows.md)
-adds an opt-in client contract for manual YAML and reviewed migration preparation.
+adds an opt-in client contract for manual YAML, reviewed migration preparation,
+job status and verified result downloads.
 It requires explicit server support and is not enabled by an ordinary MCP connection.
 
 ## Start here

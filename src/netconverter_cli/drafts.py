@@ -6,17 +6,26 @@ configuration jobs when the new contract is absent.
 """
 from __future__ import annotations
 
+from contextlib import contextmanager
 import hashlib
+import math
 import re
+import time
+import uuid
 from urllib.parse import urlsplit
 
+import httpx
+
 from .api import APIError, ExternalClient
-from .draft_io import MAX_DOCUMENT_BYTES, secure_publish, secure_snapshot
+from .draft_io import MAX_ARTIFACT_BYTES, MAX_DOCUMENT_BYTES, secure_publish, secure_publish_file, secure_snapshot
 from .workspace import Workspace, WorkspaceError
 
 ACTIONS = ("prepare_draft", "get_required_decisions", "propose_changes", "validate_draft",
            "request_review", "execute_approved", "export_document")
 RESOURCE_ACTIONS = ("read_context", "read_evidence", "read_catalog")
+JOB_ACTIONS = ("get_job_status", "download_artifact")
+_ALL_ACTIONS = ACTIONS + RESOURCE_ACTIONS + JOB_ACTIONS
+JOB_STATUSES = ("queued", "running", "complete", "failed", "stale")
 _ID = re.compile(r"[A-Za-z0-9_-]{1,80}\Z")
 _HASH = re.compile(r"[a-f0-9]{64}\Z")
 _KEY = re.compile(r"[A-Za-z0-9_-]{8,128}\Z")
@@ -24,8 +33,9 @@ _MESSAGES = {
     "unsupported_capability": "The server has not enabled this guided-workflow contract for this credential.",
     "invalid_arguments": "Supply valid explicit identifiers, revision, and supported arguments.",
     "input_unavailable": "The input could not be read securely within the workspace and size limit.",
-    "artifact_invalid": "The document manifest or checksum did not match the requested draft revision.",
-    "artifact_conflict": "The document could not be saved without replacing an existing file.",
+    "artifact_invalid": "The artifact manifest, identity, length, or checksum did not match the requested revision.",
+    "artifact_conflict": "The artifact could not be saved securely without replacing an existing file.",
+    "job_not_complete": "The job has not completed; retrieve its status before downloading artifacts.",
     "invalid_response": "The server returned an invalid guided-workflow response.",
     "needs_input": "The draft requires additional decisions before this action.",
     "revision_conflict": "The draft changed; retrieve its current revision and reconcile before retrying.",
@@ -47,15 +57,25 @@ ID_SCHEMA = {"type": "string", "pattern": "^[A-Za-z0-9_-]{1,80}$"}
 DECISION_ID_SCHEMA = {"type": "string", "pattern": "^dec_[a-f0-9]{32}$"}
 CHOICE_ID_SCHEMA = {"type": "string", "pattern": "^cho_[a-f0-9]{32}$"}
 ENTITY_REF_SCHEMA = {"type": "string", "pattern": "^ent_[a-f0-9]{32}$"}
+ARTIFACT_ID_SCHEMA = {"type": "string", "pattern": "^art_[a-f0-9]{32}$"}
 HASH_SCHEMA = {"type": "string", "pattern": "^[a-f0-9]{64}$"}
 REV_SCHEMA = {"type": "integer", "minimum": 1}
 COUNT_SCHEMA = {"type": "integer", "minimum": 0, "maximum": 1_000_000_000}
+ARTIFACT_KIND_SCHEMA = {"enum": ["target_config", "evidence_report", "evidence_workbook"]}
+ARTIFACT_DESCRIPTOR_SCHEMA = _object({
+    "artifact_id": ARTIFACT_ID_SCHEMA, "kind": ARTIFACT_KIND_SCHEMA, "sha256": HASH_SCHEMA,
+    "bytes": {"type": "integer", "minimum": 1, "maximum": MAX_ARTIFACT_BYTES},
+}, ("artifact_id", "kind", "sha256", "bytes"))
 CHOICE_SCHEMA = _object({"choice_id": CHOICE_ID_SCHEMA, "requires_input": {"type": "boolean"}}, ("choice_id",))
 DECISION_SCHEMA = _object({
     "decision_id": DECISION_ID_SCHEMA, "entity_ref": ENTITY_REF_SCHEMA, "required": {"type": "boolean"},
     "choices": {"type": "array", "maxItems": 100, "items": CHOICE_SCHEMA},
 }, ("decision_id",))
 DATA_PROPERTIES = {
+    "artifact_id": ARTIFACT_ID_SCHEMA, "kind": ARTIFACT_KIND_SCHEMA,
+    "artifacts": {"type": "array", "maxItems": 10, "items": ARTIFACT_DESCRIPTOR_SCHEMA},
+    "manifest_revision": REV_SCHEMA, "progress": {"type": "integer", "minimum": 0, "maximum": 100},
+    "waited_s": {"type": "number", "minimum": 0}, "timed_out": {"type": "boolean"},
     "draft_kind": {"const": "migration"},
     "source_vendor": {"const": "cisco_asa"}, "target_vendor": {"const": "palo_alto_set"},
     "migration_pairs": {"type": "array", "maxItems": 1, "items": _object({
@@ -69,14 +89,14 @@ DATA_PROPERTIES = {
     "review_url": {"type": "string", "maxLength": 2048},
     "enabled": {"type": "boolean"}, "contract_version": {"const": "1"},
     "approval_mode": {"const": "human_bound"}, "agent_restricted": {"const": True},
-    "operations": {"type": "array", "maxItems": len(ACTIONS + RESOURCE_ACTIONS), "uniqueItems": True,
-                   "items": {"enum": list(ACTIONS + RESOURCE_ACTIONS)}},
+    "operations": {"type": "array", "maxItems": len(_ALL_ACTIONS), "uniqueItems": True,
+                   "items": {"enum": list(_ALL_ACTIONS)}},
     "status": {"enum": ["prepared", "needs_input", "ready", "pending_review", "approved", "submitted", "queued", "running", "complete", "failed", "stale"]},
     "validation_status": {"enum": ["passed", "failed", "inconclusive", "not_evaluated", "needs_review"]},
     "verdict": {"enum": ["PASS", "FAIL", "INCONCLUSIVE", "NOT_EVALUATED", "NEEDS_REVIEW"]},
     "coverage": _object({key: COUNT_SCHEMA for key in ("parsed", "ignored", "unparsed", "unaccounted")}),
     "required_decisions": {"type": "array", "maxItems": 200, "items": DECISION_SCHEMA},
-    "next_actions": {"type": "array", "maxItems": len(ACTIONS), "uniqueItems": True, "items": {"enum": list(ACTIONS)}},
+    "next_actions": {"type": "array", "maxItems": len(ACTIONS + JOB_ACTIONS), "uniqueItems": True, "items": {"enum": list(ACTIONS + JOB_ACTIONS)}},
     "view_mode": {"enum": ["strict", "default", "full_addresses"]},
     "view_level_requested": {"enum": ["none", "masked", "selected", "full", "strict", "default", "full_addresses"]},
     "view_clamped": {"type": "boolean"},
@@ -158,6 +178,13 @@ def _project(value, schema):
         if type(value) is int and schema.get("minimum", 0) <= value <= schema.get("maximum", 2**53 - 1):
             return value
         raise DraftError("invalid_response")
+    if kind == "number":
+        try:
+            if type(value) in {int, float} and math.isfinite(value) and value >= schema.get("minimum", 0):
+                return value
+        except OverflowError:
+            pass
+        raise DraftError("invalid_response")
     if kind == "boolean":
         if type(value) is bool:
             return value
@@ -175,21 +202,108 @@ class DraftClient(ExternalClient):
     """Exact new routes only; inherited transport preserves credential handling."""
     _ALLOWED = re.compile(
         r"(?:capabilities|jobs|drafts|drafts/[A-Za-z0-9_-]{1,80}(?:/document|/proposals|/validate|/review-requests|/approval-status|/context)?"
-        r"|jobs/[A-Za-z0-9_-]{1,80}/evidence-digest|catalog/[A-Za-z0-9_-]{1,80}/entries/[A-Za-z0-9_-]{1,80})\Z"
+        r"|jobs/[A-Za-z0-9_-]{1,80}(?:/evidence-digest|/artifacts(?:/art_[a-f0-9]{32})?)?"
+        r"|catalog/[A-Za-z0-9_-]{1,80}/entries/[A-Za-z0-9_-]{1,80})\Z"
     )
 
-    def __init__(self, *args, **kwargs):
+    def __init__(self, *args, deadline=None, clock=time.monotonic, **kwargs):
         super().__init__(*args, **kwargs)
+        self.deadline, self.clock = deadline, clock
         self.http.headers["X-NetConverter-View"] = "strict"
 
-    def _send(self, method, path, idempotency_key=None, **kwargs):
+    def _timeout(self):
+        if self.deadline is None:
+            return 60.0
+        remaining = self.deadline - self.clock()
+        if remaining <= 0:
+            raise APIError(0, "connection_failed")
+        return min(60.0, remaining)
+
+    @classmethod
+    def _check_route(cls, method, path):
         read_path = (path == "capabilities" or re.fullmatch(r"drafts/[A-Za-z0-9_-]{1,80}(?:/document|/approval-status|/context)?", path)
-                     or re.fullmatch(r"jobs/[A-Za-z0-9_-]{1,80}/evidence-digest", path)
+                     or re.fullmatch(r"jobs/[A-Za-z0-9_-]{1,80}(?:/evidence-digest|/artifacts(?:/art_[a-f0-9]{32})?)?", path)
                      or re.fullmatch(r"catalog/[A-Za-z0-9_-]{1,80}/entries/[A-Za-z0-9_-]{1,80}", path))
         write_path = path in {"drafts", "jobs"} or re.fullmatch(r"drafts/[A-Za-z0-9_-]{1,80}/(?:proposals|validate|review-requests)", path)
-        if not ((method == "GET" and read_path) or (method == "POST" and write_path)):
+        if not cls._ALLOWED.fullmatch(path) or not ((method == "GET" and read_path) or (method == "POST" and write_path)):
             raise ValueError("Unsupported draft method or path")
-        return super()._send(method, path, idempotency_key, **kwargs)
+
+    @contextmanager
+    def _response_stream(self, method, path, idempotency_key=None, **kwargs):
+        """One bounded caller-controlled stream, with at most one auth refresh."""
+        self._check_route(method, path)
+        request_id = "req_" + uuid.uuid4().hex
+        try:
+            for attempt in range(2):
+                self._timeout()
+                headers = {"Authorization": "Bearer " + self.credential.token(), "X-NetConverter-View": "strict",
+                           "X-Request-ID": request_id, "Accept-Encoding": "identity"}
+                if idempotency_key is not None:
+                    headers["Idempotency-Key"] = idempotency_key
+                with self.http.stream(method, path, headers=headers, auth=None, timeout=self._timeout(), **kwargs) as response:
+                    if response.status_code == 401 and attempt == 0:
+                        # Neither the client nor httpx auth reads arbitrary 401
+                        # bytes before refreshing the existing credential.
+                        response.close()
+                        if self.credential.refresh():
+                            continue
+                        raise APIError(401, "access_denied", request_id)
+                    if response.status_code == 401:
+                        raise APIError(401, "access_denied", request_id)
+                    yield response, request_id
+                    return
+        except httpx.HTTPError:
+            raise APIError(0, "connection_failed", request_id) from None
+
+    def _bounded_body(self, response, limit, error_code, *, exact_bytes=None):
+        if response.headers.get("content-encoding", "identity").strip().lower() != "identity":
+            raise DraftError(error_code)
+        declared = response.headers.get("content-length")
+        if declared is not None:
+            if not re.fullmatch(r"[0-9]{1,10}", declared):
+                raise DraftError(error_code)
+            declared = int(declared)
+            if declared > limit or (exact_bytes is not None and declared != exact_bytes):
+                raise DraftError(error_code)
+        content = bytearray()
+        # Preloaded MockTransport responses are already materialized by their
+        # caller. Real HTTP responses take the raw, undecoded streaming path.
+        chunks = (response.content,) if response.is_stream_consumed else response.iter_raw()
+        for chunk in chunks:
+            self._timeout()
+            if not isinstance(chunk, bytes) or len(content) + len(chunk) > limit:
+                raise DraftError(error_code)
+            content.extend(chunk)
+        self._timeout()
+        if (declared is not None and len(content) != declared) or (exact_bytes is not None and len(content) != exact_bytes):
+            raise DraftError(error_code)
+        return bytes(content)
+
+    def _send(self, method, path, idempotency_key=None, **kwargs):
+        with self._response_stream(method, path, idempotency_key, **kwargs) as (response, request_id):
+            if 300 <= response.status_code < 400:
+                raise APIError(response.status_code, "request_failed", request_id)
+            content = self._bounded_body(response, 2_000_000, "invalid_response")
+            bounded = httpx.Response(response.status_code, content=content, headers=response.headers, request=response.request)
+            return bounded, request_id
+
+    def artifact_bytes(self, job_id, artifact_id, manifest_revision, expected_bytes, expected_sha256):
+        """Read an exact authenticated artifact, bounded before accumulation."""
+        path = f"jobs/{_identifier(job_id)}/artifacts/{artifact_id}"
+        if (type(expected_bytes) is not int or not 0 < expected_bytes <= MAX_ARTIFACT_BYTES or
+                not _digest(expected_sha256)):
+            raise DraftError("artifact_invalid")
+        with self._response_stream("GET", path, params={"manifest_revision": _revision(manifest_revision)}) as (response, request_id):
+            if response.status_code != 200:
+                code = {401: "access_denied", 403: "access_denied", 404: "not_found",
+                        409: "revision_conflict", 429: "rate_limited"}.get(response.status_code, "request_failed")
+                raise APIError(response.status_code, code, request_id)
+            if response.headers.get("content-type", "").split(";", 1)[0].strip().lower() in {"text/html", "application/xhtml+xml"}:
+                raise DraftError("artifact_invalid")
+            content = self._bounded_body(response, expected_bytes, "artifact_invalid", exact_bytes=expected_bytes)
+            if hashlib.sha256(content).hexdigest() != expected_sha256:
+                raise DraftError("artifact_invalid")
+            return content
 
     def request(self, method, path, *, idempotency_key=None, **kwargs):
         response, request_id = self._send(method, path, idempotency_key, **kwargs)
@@ -225,7 +339,7 @@ class DraftService:
         return {"enabled": True, "contract_version": "1", "approval_mode": "human_bound", "agent_restricted": True,
                 "view_mode": "strict", "view_enforced_by": "server",
                 "migration_pairs": [{"source_vendor": "cisco_asa", "target_vendor": "palo_alto_set"}],
-                "operations": [action for action in ACTIONS + RESOURCE_ACTIONS if action in guided["operations"]]}
+                "operations": [action for action in _ALL_ACTIONS if action in guided["operations"]]}
 
     def capabilities(self):
         try:
@@ -252,7 +366,7 @@ class DraftService:
 
     def call(self, action: str, arguments: dict):
         try:
-            if action not in ACTIONS + RESOURCE_ACTIONS or not isinstance(arguments, dict):
+            if action not in _ALL_ACTIONS or not isinstance(arguments, dict):
                 raise DraftError("invalid_arguments")
             capabilities = self._capabilities()
             if action not in capabilities["operations"]:
@@ -312,6 +426,8 @@ class DraftService:
         return projected
 
     def _run(self, action, args):
+        if action in JOB_ACTIONS:
+            return self._run_job(action, args)
         if action == "prepare_draft":
             self._arguments(args, ("path", "idempotency_key"), ("source_vendor", "target_vendor", "workflow"))
             key = self._idempotency(args)
@@ -397,6 +513,73 @@ class DraftService:
             else:
                 raise DraftError("invalid_response")
         return projected
+
+    def _job_binding(self, data, job_id, draft_id, revision, content_sha256):
+        if (not isinstance(data, dict) or data.get("job_id") != job_id or data.get("draft_id") != draft_id or
+                type(data.get("revision")) is not int or data["revision"] != revision or
+                not _digest(data.get("content_sha256")) or data["content_sha256"] != content_sha256):
+            raise DraftError("invalid_response")
+        self._migration(data)
+        return self._project_data(data)
+
+    @staticmethod
+    def _artifact_set(data):
+        if ("artifacts" in data) != ("manifest_revision" in data):
+            raise DraftError("invalid_response")
+        artifacts = data.get("artifacts", [])
+        if len({item["artifact_id"] for item in artifacts}) != len(artifacts):
+            raise DraftError("invalid_response")
+        return {item["artifact_id"]: item for item in artifacts}
+
+    def _run_job(self, action, args):
+        required = ("job_id", "draft_id", "revision")
+        if action == "download_artifact":
+            required += ("artifact_id", "manifest_revision")
+        self._arguments(args, required)
+        job_id, draft_id, revision = _identifier(args["job_id"]), _identifier(args["draft_id"]), _revision(args["revision"])
+        if action == "download_artifact":
+            artifact_id = args["artifact_id"]
+            if not isinstance(artifact_id, str) or not re.fullmatch(ARTIFACT_ID_SCHEMA["pattern"], artifact_id):
+                raise DraftError("invalid_arguments")
+            manifest_revision = _revision(args["manifest_revision"])
+        current = self._current_draft(draft_id, revision)
+        content_sha256 = current.get("content_sha256")
+        if not _digest(content_sha256):
+            raise DraftError("invalid_response")
+        job = self._job_binding(self.client.request("GET", f"jobs/{job_id}"), job_id, draft_id, revision, content_sha256)
+        if job.get("status") not in JOB_STATUSES:
+            raise DraftError("invalid_response")
+        artifacts = self._artifact_set(job)
+        if job["status"] != "complete" and ("artifacts" in job or "manifest_revision" in job):
+            raise DraftError("invalid_response")
+        if action == "get_job_status":
+            return job
+        if job["status"] != "complete":
+            raise DraftError("job_not_complete")
+        descriptor = artifacts.get(artifact_id)
+        if descriptor is None:
+            raise DraftError("not_found")
+        if job.get("manifest_revision") != manifest_revision:
+            raise DraftError("revision_conflict")
+        manifest = self._job_binding(self.client.request("GET", f"jobs/{job_id}/artifacts",
+                                     params={"manifest_revision": manifest_revision}),
+                                     job_id, draft_id, revision, content_sha256)
+        manifest_artifacts = self._artifact_set(manifest)
+        if manifest.get("manifest_revision") != manifest_revision:
+            raise DraftError("revision_conflict")
+        if artifact_id not in manifest_artifacts:
+            raise DraftError("not_found")
+        if descriptor != manifest_artifacts[artifact_id]:
+            raise DraftError("artifact_invalid")
+        content = self.client.artifact_bytes(job_id, artifact_id, manifest_revision, descriptor["bytes"], descriptor["sha256"])
+        extension = {"target_config": "set", "evidence_report": "json", "evidence_workbook": "xlsx"}[descriptor["kind"]]
+        filename = f"{job_id}.{artifact_id}.{extension}"
+        try:
+            path = secure_publish_file(self.workspace, filename, content, descriptor["sha256"], max_bytes=MAX_ARTIFACT_BYTES)
+        except (WorkspaceError, OSError):
+            raise DraftError("artifact_conflict") from None
+        return {"job_id": job_id, "draft_id": draft_id, "revision": revision, "manifest_revision": manifest_revision,
+                **descriptor, "path": str(path)}
 
     def _export_document(self, draft_id, revision):
         data = self.client.request("GET", f"drafts/{draft_id}/document", params={"revision": revision})

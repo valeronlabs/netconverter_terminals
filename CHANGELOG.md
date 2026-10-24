@@ -7,7 +7,9 @@
   human approval references. Every operation requires a fresh versioned server
   capability; unsupported servers refuse before upload. Guided mode refuses legacy
   submission. This is not production/server qualification; Windows secure file IO
-  and guided final-artifact download remain pending. See [contract](docs/guided-workflows.md).
+  remains pending. Guided job status/wait and generated-artifact downloads bind the
+  job, draft revision and manifest; bounded streams verify length and SHA-256 before
+  saving without overwriting. See [contract](docs/guided-workflows.md).
 
 - **`whoami` never shows an organization's raw id (#685).** An organization with no name
   and no slug is listed as `(unnamed organization)` instead of its `org_…` id. The active
