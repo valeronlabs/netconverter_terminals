@@ -1,0 +1,197 @@
+{
+  "operations": {
+    "interface.remap": {
+      "assertions": [
+        "interface_references_resolve",
+        "mapped_interface_present"
+      ],
+      "decision_fields": [
+        "interface_mappings"
+      ],
+      "family": "interfaces",
+      "invalidates": [
+        "routing",
+        "zones",
+        "cross_device"
+      ],
+      "parameters": {
+        "additionalProperties": false,
+        "properties": {
+          "source": {
+            "maxLength": 128,
+            "minLength": 1,
+            "type": "string"
+          },
+          "target": {
+            "pattern": "^(ethernet[1-9][0-9]*/[1-9][0-9]*|ae[0-9]+|loopback\\.[0-9]+|tunnel\\.[0-9]+)(\\.[0-9]+)?$",
+            "type": "string"
+          }
+        },
+        "required": [
+          "source",
+          "target"
+        ],
+        "type": "object"
+      },
+      "preparation_supported": true,
+      "status": "implemented_awaiting_qualification",
+      "title": "Map a source interface to a destination interface"
+    },
+    "policy.options": {
+      "assertions": [
+        "selected_options_applied",
+        "behavior_changes_disclosed"
+      ],
+      "decision_fields": [
+        "options"
+      ],
+      "family": "policy",
+      "invalidates": [
+        "policy",
+        "modeled_behavior"
+      ],
+      "parameters": {
+        "additionalProperties": false,
+        "minProperties": 1,
+        "properties": {
+          "add_security_profiles": {
+            "type": "boolean"
+          },
+          "enable_appid": {
+            "type": "boolean"
+          },
+          "log_all_rules": {
+            "type": "boolean"
+          }
+        },
+        "type": "object"
+      },
+      "preparation_supported": true,
+      "status": "implemented_awaiting_qualification",
+      "title": "Explicitly choose policy modernization options"
+    },
+    "routing.eigrp_to_static": {
+      "family": "routing",
+      "gap": "Configuration alone does not identify dynamically learned routes; this operation is not qualified.",
+      "preparation_supported": false,
+      "required_inputs": [
+        "fresh_route_evidence_or_explicit_prefixes",
+        "next_hops",
+        "failover",
+        "evidence_collection_time"
+      ],
+      "status": "planned",
+      "title": "Replace EIGRP with explicit static routes"
+    },
+    "routing.static_to_ospf": {
+      "family": "routing",
+      "gap": "This operation requires a qualified desired-routing compiler and output assertions.",
+      "preparation_supported": false,
+      "required_inputs": [
+        "routing_instance",
+        "router_id",
+        "interfaces",
+        "areas",
+        "passive_interfaces",
+        "adjacency_expectations",
+        "authentication_reference",
+        "existing_route_treatment",
+        "redistribution",
+        "default_origination",
+        "filtering",
+        "metrics",
+        "fallback_routes"
+      ],
+      "status": "planned",
+      "title": "Replace selected static routes with OSPF"
+    },
+    "source.scope": {
+      "assertions": [
+        "cleanup_respects_source_scope"
+      ],
+      "decision_fields": [
+        "options.source_scope"
+      ],
+      "family": "scope",
+      "invalidates": [
+        "cleanup",
+        "fidelity"
+      ],
+      "parameters": {
+        "additionalProperties": false,
+        "properties": {
+          "scope": {
+            "enum": [
+              "unknown",
+              "partial",
+              "complete"
+            ]
+          }
+        },
+        "required": [
+          "scope"
+        ],
+        "type": "object"
+      },
+      "preparation_supported": true,
+      "status": "implemented_awaiting_qualification",
+      "title": "Declare whether the supplied source is complete"
+    },
+    "switching.design": {
+      "family": "switching",
+      "gap": "Switching project operations need pair-specific compilation and cross-device qualification.",
+      "preparation_supported": false,
+      "required_inputs": [
+        "source_target_pair",
+        "topology",
+        "vlan_intent",
+        "link_roles",
+        "routing_instances"
+      ],
+      "status": "planned",
+      "title": "Change VLAN, trunk, LAG and VRF design"
+    },
+    "zone.map": {
+      "assertions": [
+        "zone_references_resolve",
+        "mapped_zone_present"
+      ],
+      "decision_fields": [
+        "zone_mappings.mappings"
+      ],
+      "family": "zones",
+      "invalidates": [
+        "policy",
+        "nat",
+        "cross_device"
+      ],
+      "parameters": {
+        "additionalProperties": false,
+        "properties": {
+          "source": {
+            "maxLength": 128,
+            "minLength": 1,
+            "type": "string"
+          },
+          "target": {
+            "pattern": "^[A-Za-z][A-Za-z0-9_.-]{0,30}$",
+            "type": "string"
+          }
+        },
+        "required": [
+          "source",
+          "target"
+        ],
+        "type": "object"
+      },
+      "preparation_supported": true,
+      "status": "implemented_awaiting_qualification",
+      "title": "Map a source zone"
+    }
+  },
+  "source_vendor": "cisco_asa",
+  "target_vendors": [
+    "palo_alto_set"
+  ],
+  "version": "conversational_1"
+}

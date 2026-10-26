@@ -91,7 +91,7 @@ def test_descriptors_are_valid_json_schemas_and_share_minted_token_contract(brid
         Draft202012Validator.check_schema(tool["outputSchema"])
         assert tool["outputSchema"]["type"] == "object"
     proposal = next(tool for tool in bridge.list_tools() if tool["name"] == "propose_changes")
-    change_properties = proposal["inputSchema"]["properties"]["changes"]["items"]["properties"]
+    change_properties = proposal["inputSchema"]["properties"]["changes"]["items"]["oneOf"][1]["properties"]
     assert change_properties["decision_id"] == DECISION_SCHEMA["properties"]["decision_id"]
     assert change_properties["choice_id"] == CHOICE_SCHEMA["properties"]["choice_id"]
     assert change_properties["entity_ref"] == DECISION_SCHEMA["properties"]["entity_ref"]
@@ -102,6 +102,23 @@ def test_descriptors_are_valid_json_schemas_and_share_minted_token_contract(brid
     for name in ("decision_id", "choice_id", "entity_ref"):
         invalid = json.loads(json.dumps(arguments))
         invalid["changes"][0][name] = CANARY
+        with pytest.raises(ValidationError):
+            validator.validate(invalid)
+
+
+def test_typed_proposal_schema_accepts_remapping_but_not_claimed_approval(bridge):
+    proposal = next(tool for tool in bridge.list_tools() if tool["name"] == "propose_changes")
+    validator = Draft202012Validator(proposal["inputSchema"])
+    arguments = {"draft_id": "d1", "revision": 1, "idempotency_key": "proposal-001", "changes": [
+        {"operation": "interface.remap", "parameters": {"source": "Gi0/1", "target": "ethernet1/4"}}]}
+    validator.validate(arguments)
+    for mutation in [
+        {"accepted_by": "human"},
+        {"parameters": {"source": "Gi0/1", "target": "not-an-interface"}},
+        {"operation": "routing.static_to_ospf", "parameters": {}},
+    ]:
+        invalid = json.loads(json.dumps(arguments))
+        invalid["changes"][0].update(mutation)
         with pytest.raises(ValidationError):
             validator.validate(invalid)
 

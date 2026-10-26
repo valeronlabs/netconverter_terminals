@@ -416,3 +416,52 @@ def test_actual_json_schema_validates_projected_success_and_errors(tmp_path):
     with pytest.raises(Exception) as error:
         validator.validate({"schema_version": "1", "ok": True, "data": {"source_config": CANARY}})
     assert error.type.__name__ == "ValidationError"
+
+
+def test_typed_batch_uses_matching_server_catalog_and_preserves_revision(tmp_path):
+    from netconverter_cli.design_catalog import CATALOG
+    from jsonschema import Draft202012Validator
+
+    changes = [{"operation": "interface.remap", "parameters": {"source": "Gi0/1", "target": "ethernet1/4"}},
+               {"operation": "policy.options", "parameters": {"enable_appid": False}}]
+    def handle(request):
+        if request.url.path.endswith("/guided/catalog"):
+            return success(CATALOG)
+        assert request.method == "POST"
+        assert json.loads(request.content) == {"expected_revision": 7, "changes": changes}
+        assert request.headers["Idempotency-Key"] == KEY
+        return success(draft(revision=8))
+    svc, seen = service(tmp_path, handle)
+    catalog = svc.call("get_design_catalog", {})
+    assert catalog["ok"]
+    Draft202012Validator(OUTPUT_SCHEMA).validate(catalog)
+    assert svc.call("propose_changes", args(revision=7, changes=changes))["ok"]
+    assert len([r for r in seen if r.method == "POST"]) == 1
+
+
+@pytest.mark.parametrize("bad", [
+    {"operation": "interface.remap", "parameters": {"source": "Gi0/1", "target": "bad"}},
+    {"operation": "policy.options", "parameters": {"enable_appid": "false"}},
+    {"operation": "policy.options", "parameters": {}},
+    {"operation": "source.scope", "parameters": {"scope": "complete", "accepted_by": "human"}},
+    {"operation": "zone.map", "parameters": {"source": "inside", "target": "Trust"}, "accepted_by": "human"},
+])
+def test_invalid_typed_batch_never_sends_partial_mutation(tmp_path, bad):
+    svc, seen = service(tmp_path, lambda req: pytest.fail("Invalid batch must not contact draft/catalog"))
+    result = svc.call("propose_changes", args(changes=[
+        {"operation": "source.scope", "parameters": {"scope": "partial"}}, bad]))
+    assert result["error"]["code"] == "invalid_arguments"
+    assert not any(r.method == "POST" for r in seen)
+
+
+def test_catalog_mismatch_and_planned_operations_cannot_mutate(tmp_path):
+    from netconverter_cli.design_catalog import CATALOG
+    different = {**CATALOG, "version": "future_contract"}
+    svc, seen = service(tmp_path, lambda req: success(different))
+    result = svc.call("propose_changes", args(changes=[
+        {"operation": "source.scope", "parameters": {"scope": "partial"}}]))
+    assert result["error"]["code"] == "unsupported_capability"
+    result = svc.call("propose_changes", args(changes=[
+        {"operation": "routing.static_to_ospf", "parameters": {}}]))
+    assert result["error"]["code"] == "unsupported_operation"
+    assert not any(r.method == "POST" for r in seen)

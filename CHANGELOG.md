@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+- **Typed migration proposals (development preview).** A generated server catalog
+  describes interface/zone mappings, source scope and explicit policy options.
+  CLI and guided MCP validate complete batches and require a matching server
+  catalog before submission. Routing redesign remains planned; these additions
+  do not establish production, Windows or desktop-client qualification.
+
 - **Guided draft client foundation (development preview).** `draft` commands and
   `mcp --guided` use explicit revisions, direct local YAML transfer and independent
   human approval references. Every operation requires a fresh versioned server

@@ -62,9 +62,26 @@ still checks current authorization, the receipt identity, its submission scope
 and matching approved content hashes. An unconsumed receipt requires current
 validation and submission readiness before a new job can be created.
 
-`draft propose --changes '[...]'` selects minted decision/choice references; richer
-values, renames and interface mappings use manual YAML in this slice. YAML imports
-are proposals and never approvals. The client does not parse or rewrite YAML.
+`draft catalog` retrieves the versioned server operation catalog. Development
+preview typed batches support interface remapping, zone mapping, source scope and
+explicit policy options through the existing server YAML compiler. The client
+requires the server catalog to match its generated schema before sending a typed
+batch. All entries remain awaiting qualification; routing redesign and switching
+operations are planned and refused. Existing minted decision/choice schemas remain
+available for compatible callers. YAML imports are proposals and never approvals.
+The client does not parse or rewrite YAML.
+
+```sh
+netconverter draft catalog
+netconverter draft propose DRAFT_ID --revision 1 --idempotency-key remap-001 \
+  --changes '[{"operation":"interface.remap","parameters":{"source":"Gi0/1","target":"ethernet1/4"}}]'
+```
+
+The server resolves source aliases and rejects conflicting destination assignments.
+Every batch applies atomically. `revision_conflict` and `idempotency_conflict` are
+distinct errors. Regenerate `guided_operations.json` using the server repository's
+`scripts/export_guided_catalog.py --output <terminal>/src/netconverter_cli/guided_operations.json`;
+use `--check` to verify parity. Do not hand-maintain a second schema.
 
 ## MCP surface
 
@@ -72,6 +89,7 @@ Run `netconverter mcp --workspace ~/migrations --guided`. Connection setup does 
 silently opt existing assistants into this mode. The mode exposes `account`, the
 following authorized tools in fixed order:
 
+0. `get_design_catalog`
 1. `prepare_draft`
 2. `get_required_decisions`
 3. `propose_changes`
@@ -82,7 +100,7 @@ following authorized tools in fixed order:
 8. `wait_for_job`
 9. `download`
 
-The six draft task tools stay first. Job tools require `get_job_status` capability;
+Catalog and draft task tools stay first. Job tools require `get_job_status` capability;
 `download` exposes only the supported YAML/artifact argument forms. Generated
 artifacts require explicit job, draft, revision, artifact and manifest identities.
 No single-job legacy download is available in guided mode. `wait_for_job` rechecks
@@ -122,7 +140,7 @@ metadata/error bodies are streamed with a 2,000,000-byte limit before parsing.
   "view_mode": "strict",
   "view_enforced_by": "server",
   "migration_pairs": [{"source_vendor": "cisco_asa", "target_vendor": "palo_alto_set"}],
-  "operations": ["prepare_draft", "get_required_decisions", "propose_changes",
+  "operations": ["get_design_catalog", "prepare_draft", "get_required_decisions", "propose_changes",
     "validate_draft", "request_review", "execute_approved", "export_document",
     "read_context", "read_evidence", "read_catalog", "get_job_status", "download_artifact"]
 }

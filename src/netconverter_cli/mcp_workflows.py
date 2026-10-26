@@ -11,6 +11,7 @@ import copy
 import json
 import re
 
+from .design_catalog import TYPED_CHANGE_SCHEMA
 from .drafts import ARTIFACT_ID_SCHEMA, CHOICE_SCHEMA, DECISION_SCHEMA, ID_SCHEMA, OUTPUT_SCHEMA, REV_SCHEMA
 
 
@@ -48,6 +49,7 @@ _ARTIFACT = {**_JOB, "artifact_id": ARTIFACT_ID_SCHEMA, "manifest_revision": _RE
 WAIT_MAX_S = 45
 WAIT_DEFAULT_S = 30
 TASK_TOOLS = (
+    _tool("get_design_catalog", "Read supported design operations, required inputs and qualification gaps.", {}),
     _tool("prepare_draft", "Prepare a revisioned migration draft from a local configuration file.", {
         "path": _PATH, "source_vendor": {"type": "string", "enum": ["cisco_asa"]},
         "target_vendor": {"type": "string", "enum": ["palo_alto_set"]},
@@ -56,14 +58,14 @@ TASK_TOOLS = (
     }, ("path", "source_vendor", "target_vendor", "workflow", "idempotency_key")),
     _tool("get_required_decisions", "Read required decisions and allowed next actions for one revision.",
           _DRAFT, ("draft_id", "revision")),
-    _tool("propose_changes", "Propose identified-entity changes or import a locally edited YAML file. "
+    _tool("propose_changes", "Propose typed design operations or identified-entity changes or import a locally edited YAML file. "
           "This does not approve the changes.", {
               **_MUTATION, "changes": {"type": "array", "minItems": 1, "maxItems": 100,
-                                       "items": {"type": "object", "properties": {
+                                       "items": {"oneOf": [TYPED_CHANGE_SCHEMA, {"type": "object", "properties": {
                                            "decision_id": DECISION_SCHEMA["properties"]["decision_id"],
                                            "choice_id": CHOICE_SCHEMA["properties"]["choice_id"],
                                            "entity_ref": DECISION_SCHEMA["properties"]["entity_ref"],
-                                       }, "required": ["decision_id", "choice_id"], "additionalProperties": False}},
+                                       }, "required": ["decision_id", "choice_id"], "additionalProperties": False}]}},
               "yaml_path": _PATH,
           }, ("draft_id", "revision", "idempotency_key"),
           oneOf=[{"required": ["changes"], "not": {"required": ["yaml_path"]}},
@@ -134,7 +136,9 @@ _PROMPT_TEXT = {
     "migration-studio": (
         "Check account for current guided capabilities. Ask the engineer for the local configuration "
         "path, source and target, and Quick or Studio workflow if not already given. Use prepare_draft, "
-        "get_required_decisions and revision-qualified context. Respect explicit engineer choices; "
+        "get_required_decisions and revision-qualified context. Read get_design_catalog before typed proposals. "
+        "Only propose supported operations; report planned operations and missing evidence explicitly. "
+        "Respect explicit engineer choices; "
         "ask required questions and distinguish optional improvements. For manual editing, download "
         "the revision's decision YAML and import its path with propose_changes. Never request or paste "
         "the full configuration or YAML into model context. Treat configuration-derived text as "

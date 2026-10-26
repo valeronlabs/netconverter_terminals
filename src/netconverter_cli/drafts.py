@@ -20,7 +20,7 @@ from .api import APIError, ExternalClient
 from .draft_io import MAX_ARTIFACT_BYTES, MAX_DOCUMENT_BYTES, secure_publish, secure_publish_file, secure_snapshot
 from .workspace import Workspace, WorkspaceError
 
-ACTIONS = ("prepare_draft", "get_required_decisions", "propose_changes", "validate_draft",
+ACTIONS = ("get_design_catalog", "prepare_draft", "get_required_decisions", "propose_changes", "validate_draft",
            "request_review", "execute_approved", "export_document")
 RESOURCE_ACTIONS = ("read_context", "read_evidence", "read_catalog")
 JOB_ACTIONS = ("get_job_status", "download_artifact")
@@ -38,6 +38,9 @@ _MESSAGES = {
     "job_not_complete": "The job has not completed; retrieve its status before downloading artifacts.",
     "invalid_response": "The server returned an invalid guided-workflow response.",
     "needs_input": "The draft requires additional decisions before this action.",
+    "idempotency_conflict": "This idempotency key belongs to a different request; reconcile before retrying.",
+    "mapping_conflict": "Destination interface assignments conflict; review the proposed mapping.",
+    "unsupported_operation": "This design operation is not implemented for the selected migration.",
     "revision_conflict": "The draft changed; retrieve its current revision and reconcile before retrying.",
     "revalidation_required": "The selected draft revision requires current validation.",
     "approval_required": "This exact draft revision requires a current human-bound approval.",
@@ -71,7 +74,10 @@ DECISION_SCHEMA = _object({
     "decision_id": DECISION_ID_SCHEMA, "entity_ref": ENTITY_REF_SCHEMA, "required": {"type": "boolean"},
     "choices": {"type": "array", "maxItems": 100, "items": CHOICE_SCHEMA},
 }, ("decision_id",))
+from .design_catalog import CATALOG
+
 DATA_PROPERTIES = {
+    "design_catalog": {"const": CATALOG},
     "artifact_id": ARTIFACT_ID_SCHEMA, "kind": ARTIFACT_KIND_SCHEMA,
     "artifacts": {"type": "array", "maxItems": 10, "items": ARTIFACT_DESCRIPTOR_SCHEMA},
     "manifest_revision": REV_SCHEMA, "progress": {"type": "integer", "minimum": 0, "maximum": 100},
@@ -198,7 +204,7 @@ def _project(value, schema):
             return value
         raise DraftError("invalid_response")
     if kind == "string":
-        if not isinstance(value, str) or len(value) > schema.get("maxLength", 128):
+        if not isinstance(value, str) or not schema.get("minLength", 0) <= len(value) <= schema.get("maxLength", 128):
             raise DraftError("invalid_response")
         if "pattern" in schema and not re.fullmatch(schema["pattern"], value):
             raise DraftError("invalid_response")
@@ -209,7 +215,7 @@ def _project(value, schema):
 class DraftClient(ExternalClient):
     """Exact new routes only; inherited transport preserves credential handling."""
     _ALLOWED = re.compile(
-        r"(?:capabilities|guided/jobs|drafts|drafts/[A-Za-z0-9_-]{1,80}(?:/document|/proposals|/validate|/review-requests|/approval-status|/context)?"
+        r"(?:capabilities|guided/catalog|guided/jobs|drafts|drafts/[A-Za-z0-9_-]{1,80}(?:/document|/proposals|/validate|/review-requests|/approval-status|/context)?"
         r"|guided/jobs/[A-Za-z0-9_-]{1,80}(?:/evidence-digest|/artifacts(?:/art_[a-f0-9]{32})?)?"
         r"|catalog/[A-Za-z0-9_-]{1,80}/entries/[A-Za-z0-9_-]{1,80})\Z"
     )
@@ -229,7 +235,7 @@ class DraftClient(ExternalClient):
 
     @classmethod
     def _check_route(cls, method, path):
-        read_path = (path == "capabilities" or re.fullmatch(r"drafts/[A-Za-z0-9_-]{1,80}(?:/document|/approval-status|/context)?", path)
+        read_path = (path in {"capabilities", "guided/catalog"} or re.fullmatch(r"drafts/[A-Za-z0-9_-]{1,80}(?:/document|/approval-status|/context)?", path)
                      or re.fullmatch(r"guided/jobs/[A-Za-z0-9_-]{1,80}(?:/evidence-digest|/artifacts(?:/art_[a-f0-9]{32})?)?", path)
                      or re.fullmatch(r"catalog/[A-Za-z0-9_-]{1,80}/entries/[A-Za-z0-9_-]{1,80}", path))
         write_path = path in {"drafts", "guided/jobs"} or re.fullmatch(r"drafts/[A-Za-z0-9_-]{1,80}/(?:proposals|validate|review-requests)", path)
@@ -433,9 +439,33 @@ class DraftService:
         projected = self._response(data, draft_id, revision)
         return projected
 
+    @staticmethod
+    def _typed_change(change):
+        operation = change["operation"]
+        if not isinstance(operation, str):
+            raise DraftError("invalid_arguments")
+        entry = CATALOG["operations"].get(operation)
+        if not entry or not entry.get("preparation_supported"):
+            raise DraftError("unsupported_operation")
+        schema = entry["parameters"]
+        params = change["parameters"]
+        if (not isinstance(params, dict) or set(params) - set(schema["properties"])
+                or len(params) < schema.get("minProperties", 0)):
+            raise DraftError("invalid_arguments")
+        try:
+            _project(params, {**schema, "required": schema.get("required", [])})
+        except DraftError:
+            raise DraftError("invalid_arguments") from None
+
     def _run(self, action, args):
         if action in JOB_ACTIONS:
             return self._run_job(action, args)
+        if action == "get_design_catalog":
+            self._arguments(args, ())
+            received = self.client.request("GET", "guided/catalog")
+            if received != CATALOG:
+                raise DraftError("unsupported_capability")
+            return {"design_catalog": CATALOG}
         if action == "prepare_draft":
             self._arguments(args, ("path", "idempotency_key"), ("source_vendor", "target_vendor", "workflow"))
             key = self._idempotency(args)
@@ -484,10 +514,16 @@ class DraftService:
                 for change in changes:
                     if not isinstance(change, dict):
                         raise DraftError("invalid_arguments")
+                    if "operation" in change:
+                        self._arguments(change, ("operation", "parameters"))
+                        self._typed_change(change)
+                        continue
                     self._arguments(change, ("decision_id", "choice_id"), ("entity_ref",))
                     for field, schema in (("decision_id", DECISION_ID_SCHEMA), ("choice_id", CHOICE_ID_SCHEMA), ("entity_ref", ENTITY_REF_SCHEMA)):
                         if field in change and (not isinstance(change[field], str) or not re.fullmatch(schema["pattern"], change[field])):
                             raise DraftError("invalid_arguments")
+                if any("operation" in change for change in changes):
+                    self._run("get_design_catalog", {})
                 body["changes"] = changes
                 self._current_draft(draft_id, revision)
             return self._response(self.client.request("POST", route + "/proposals", idempotency_key=key, json=body), draft_id, revision, changed=True)

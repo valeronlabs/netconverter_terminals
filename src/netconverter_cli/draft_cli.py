@@ -26,6 +26,7 @@ def _revision(value: str) -> int:
 def add_parser(subparsers):
     draft = subparsers.add_parser("draft", help="prepare and review a revisioned migration draft")
     commands = draft.add_subparsers(dest="draft_command", required=True)
+    commands.add_parser("catalog", help="show design operations and qualification gaps")
     prepare = commands.add_parser("prepare", help="prepare a draft without executing a migration")
     prepare.add_argument("path")
     prepare.add_argument("--vendor", dest="source_vendor", default="cisco_asa")
@@ -43,7 +44,7 @@ def add_parser(subparsers):
                                  help="local YAML path inside the workspace; uploaded directly")
         if name == "propose":
             command.add_argument("--changes", required=True,
-                                 help="JSON decision choices using opaque decision and choice identifiers")
+                                 help="JSON typed operations from draft catalog, or opaque decision choices")
         if name == "execute":
             command.add_argument("--approval-ref", required=True,
                                  help="reference issued after independent human review of this revision")
@@ -63,7 +64,7 @@ def run(args, credential) -> dict:
     from .drafts import DraftClient, DraftService
 
     actions = {
-        "prepare": "prepare_draft", "decisions": "get_required_decisions",
+        "catalog": "get_design_catalog", "prepare": "prepare_draft", "decisions": "get_required_decisions",
         "export": "export_document", "import": "propose_changes", "propose": "propose_changes",
         "validate": "validate_draft", "review": "request_review", "execute": "execute_approved",
         "job-status": "get_job_status", "download-result": "download_artifact",
