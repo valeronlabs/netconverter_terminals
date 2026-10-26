@@ -1,4 +1,126 @@
 {
+  "context": {
+    "requirement_guidance": {
+      "dependency_invalidated": "Revisit the affected design decision after its dependency changed; submission is blocked.",
+      "source_context_incomplete": "Source interface facts are unavailable or truncated; re-prepare or inspect an authorized artifact.",
+      "source_scope_unknown": "Ask whether the supplied source is complete or partial before recommending cleanup."
+    },
+    "requirements_schema": {
+      "items": {
+        "additionalProperties": false,
+        "properties": {
+          "code": {
+            "enum": [
+              "source_scope_unknown",
+              "source_context_incomplete",
+              "dependency_invalidated"
+            ]
+          },
+          "entity_ref": {
+            "pattern": "^ent_[a-f0-9]{32}$",
+            "type": "string"
+          },
+          "required": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "code",
+          "required"
+        ],
+        "type": "object"
+      },
+      "maxItems": 100,
+      "type": "array"
+    },
+    "schema": {
+      "additionalProperties": false,
+      "properties": {
+        "items": {
+          "items": {
+            "additionalProperties": false,
+            "properties": {
+              "cidr": {
+                "maxLength": 128,
+                "type": "string"
+              },
+              "desired_target": {
+                "maxLength": 128,
+                "type": "string"
+              },
+              "desired_zone": {
+                "maxLength": 128,
+                "type": "string"
+              },
+              "ip_address": {
+                "maxLength": 128,
+                "type": "string"
+              },
+              "name": {
+                "maxLength": 128,
+                "type": "string"
+              },
+              "nameif": {
+                "maxLength": 128,
+                "type": "string"
+              },
+              "netmask": {
+                "maxLength": 128,
+                "type": "string"
+              },
+              "zone": {
+                "maxLength": 128,
+                "type": "string"
+              }
+            },
+            "required": [
+              "name"
+            ],
+            "type": "object"
+          },
+          "maxItems": 100,
+          "type": "array"
+        },
+        "kind": {
+          "const": "interface_design"
+        },
+        "next_offset": {
+          "maximum": 1000000000,
+          "minimum": 0,
+          "type": "integer"
+        },
+        "offset": {
+          "maximum": 1000000000,
+          "minimum": 0,
+          "type": "integer"
+        },
+        "source_complete": {
+          "type": "boolean"
+        },
+        "source_fields_untrusted": {
+          "const": true
+        },
+        "total": {
+          "maximum": 1000000000,
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "kind",
+        "source_fields_untrusted",
+        "source_complete",
+        "offset",
+        "total",
+        "items"
+      ],
+      "type": "object"
+    },
+    "views": [
+      "strict",
+      "interfaces"
+    ]
+  },
   "operations": {
     "interface.remap": {
       "assertions": [
@@ -193,5 +315,5 @@
   "target_vendors": [
     "palo_alto_set"
   ],
-  "version": "conversational_1"
+  "version": "conversational_2"
 }

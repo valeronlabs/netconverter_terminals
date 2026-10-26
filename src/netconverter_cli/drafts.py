@@ -78,6 +78,10 @@ from .design_catalog import CATALOG
 
 DATA_PROPERTIES = {
     "design_catalog": {"const": CATALOG},
+    "design_context": CATALOG["context"]["schema"],
+    "design_requirements": CATALOG["context"]["requirements_schema"],
+    "design_requirements_total": COUNT_SCHEMA,
+    "design_requirements_complete": {"const": False},
     "artifact_id": ARTIFACT_ID_SCHEMA, "kind": ARTIFACT_KIND_SCHEMA,
     "artifacts": {"type": "array", "maxItems": 10, "items": ARTIFACT_DESCRIPTOR_SCHEMA},
     "manifest_revision": REV_SCHEMA, "progress": {"type": "integer", "minimum": 0, "maximum": 100},
@@ -111,7 +115,7 @@ DATA_PROPERTIES = {
     "coverage": _object({key: COUNT_SCHEMA for key in ("parsed", "ignored", "unparsed", "unaccounted")}),
     "required_decisions": {"type": "array", "maxItems": 200, "items": DECISION_SCHEMA},
     "next_actions": {"type": "array", "maxItems": len(ACTIONS + JOB_ACTIONS), "uniqueItems": True, "items": {"enum": list(ACTIONS + JOB_ACTIONS)}},
-    "view_mode": {"enum": ["strict", "default", "full_addresses"]},
+    "view_mode": {"enum": ["strict", "selected", "default", "full_addresses"]},
     "view_level_requested": {"enum": ["none", "masked", "selected", "full", "strict", "default", "full_addresses"]},
     "view_clamped": {"type": "boolean"},
     "view_enforced_by": {"const": "server"},
@@ -645,12 +649,30 @@ class DraftService:
 
     def _read_resource(self, action, args):
         if action == "read_context":
-            self._arguments(args, ("draft_id", "revision", "view_id"))
+            self._arguments(args, ("draft_id", "revision", "view_id"), ("offset", "limit"))
             draft_id, revision, view_id = _identifier(args["draft_id"]), _revision(args["revision"]), _identifier(args["view_id"])
-            data = self.client.request("GET", f"drafts/{draft_id}/context", params={"revision": revision, "view_id": view_id})
+            params = {"revision": revision, "view_id": view_id}
+            if view_id == "interfaces":
+                offset, limit = args.get("offset", 0), args.get("limit", 100)
+                if type(offset) is not int or not 0 <= offset <= 500 or type(limit) is not int or not 1 <= limit <= 100:
+                    raise DraftError("invalid_arguments")
+                self._run("get_design_catalog", {})
+                params.update(offset=offset, limit=limit)
+            elif "offset" in args or "limit" in args:
+                raise DraftError("invalid_arguments")
+            data = self.client.request("GET", f"drafts/{draft_id}/context", params=params)
             result = self._response(data, draft_id, revision)
             self._migration(result)
             if result.get("view_id") != view_id:
+                raise DraftError("invalid_response")
+            if view_id == "interfaces":
+                page = result.get("design_context", {})
+                if page.get("offset") != offset or len(page.get("items", [])) > limit:
+                    raise DraftError("invalid_response")
+                expected_next = offset + limit if offset + limit < page.get("total", 0) else None
+                if page.get("next_offset") != expected_next:
+                    raise DraftError("invalid_response")
+            elif "design_context" in result:
                 raise DraftError("invalid_response")
             return result
         if action == "read_evidence":

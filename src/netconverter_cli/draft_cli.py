@@ -27,6 +27,12 @@ def add_parser(subparsers):
     draft = subparsers.add_parser("draft", help="prepare and review a revisioned migration draft")
     commands = draft.add_subparsers(dest="draft_command", required=True)
     commands.add_parser("catalog", help="show design operations and qualification gaps")
+    context = commands.add_parser("context", help="show bounded interface facts and proposed mappings")
+    context.add_argument("draft_id")
+    context.add_argument("--revision", type=_revision, required=True)
+    context.add_argument("--view-id", choices=["strict", "interfaces"], default="interfaces")
+    context.add_argument("--offset", type=int)
+    context.add_argument("--limit", type=int)
     prepare = commands.add_parser("prepare", help="prepare a draft without executing a migration")
     prepare.add_argument("path")
     prepare.add_argument("--vendor", dest="source_vendor", default="cisco_asa")
@@ -64,15 +70,15 @@ def run(args, credential) -> dict:
     from .drafts import DraftClient, DraftService
 
     actions = {
-        "catalog": "get_design_catalog", "prepare": "prepare_draft", "decisions": "get_required_decisions",
+        "context": "read_context", "catalog": "get_design_catalog", "prepare": "prepare_draft", "decisions": "get_required_decisions",
         "export": "export_document", "import": "propose_changes", "propose": "propose_changes",
         "validate": "validate_draft", "review": "request_review", "execute": "execute_approved",
         "job-status": "get_job_status", "download-result": "download_artifact",
     }
     fields = ("path", "source_vendor", "target_vendor", "workflow", "idempotency_key",
               "draft_id", "revision", "yaml_path", "approval_ref", "job_id", "artifact_id",
-              "manifest_revision")
-    arguments = {name: getattr(args, name) for name in fields if hasattr(args, name)}
+              "manifest_revision", "view_id", "offset", "limit")
+    arguments = {name: getattr(args, name) for name in fields if hasattr(args, name) and getattr(args, name) is not None}
     if args.draft_command == "propose":
         try:
             if len(args.changes) > 32_000:

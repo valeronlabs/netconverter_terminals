@@ -73,6 +73,7 @@ The client does not parse or rewrite YAML.
 
 ```sh
 netconverter draft catalog
+netconverter draft context DRAFT_ID --revision 1 --view-id interfaces --limit 50
 netconverter draft propose DRAFT_ID --revision 1 --idempotency-key remap-001 \
   --changes '[{"operation":"interface.remap","parameters":{"source":"Gi0/1","target":"ethernet1/4"}}]'
 ```
@@ -83,6 +84,13 @@ distinct errors. Regenerate `guided_operations.json` using the server repository
 `scripts/export_guided_catalog.py --output <terminal>/src/netconverter_cli/guided_operations.json`;
 use `--check` to verify parity. Do not hand-maintain a second schema.
 
+The `interfaces` context returns selected observed names, addresses and zones beside
+desired mappings. It excludes descriptions, credentials and raw configuration;
+source fields are untrusted data. Continue with `--offset` from `next_offset`.
+The `strict` context remains a summary. Decision requirements distinguish advisory
+source-scope/context questions from invalidated dependencies that block submission.
+Their completeness flag remains false; an empty list is not migration qualification.
+
 ## MCP surface
 
 Run `netconverter mcp --workspace ~/migrations --guided`. Connection setup does not
@@ -92,6 +100,7 @@ following authorized tools in fixed order:
 0. `get_design_catalog`
 1. `prepare_draft`
 2. `get_required_decisions`
+3. `read_context`
 3. `propose_changes`
 4. `validate_draft`
 5. `request_review`

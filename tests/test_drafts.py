@@ -465,3 +465,32 @@ def test_catalog_mismatch_and_planned_operations_cannot_mutate(tmp_path):
         {"operation": "routing.static_to_ospf", "parameters": {}}]))
     assert result["error"]["code"] == "unsupported_operation"
     assert not any(r.method == "POST" for r in seen)
+
+
+def test_design_context_retains_only_selected_fields_and_checks_paging(tmp_path):
+    from netconverter_cli.design_catalog import CATALOG
+    from jsonschema import Draft202012Validator
+    context = {'kind': 'interface_design', 'source_fields_untrusted': True, 'source_complete': True,
+               'offset': 0, 'total': 2, 'next_offset': 1, 'items': [
+                   {'name': 'Gi0/1', 'desired_target': 'ethernet1/4', 'password': CANARY}], 'raw_config': CANARY}
+    def handle(req):
+        if req.url.path.endswith('/guided/catalog'):
+            return success(CATALOG)
+        assert req.url.params['limit'] == '1'
+        return success(draft(view_id='interfaces', design_context=context))
+    svc, _ = service(tmp_path, handle)
+    arguments = {'draft_id': 'draft_1', 'revision': 1, 'view_id': 'interfaces', 'limit': 1}
+    result = svc.call('read_context', arguments)
+    assert result['ok'] and CANARY not in json.dumps(result)
+    assert result['data']['design_context']['items'][0]['desired_target'] == 'ethernet1/4'
+    Draft202012Validator(OUTPUT_SCHEMA).validate(result)
+    context['next_offset'] = 99
+    assert svc.call('read_context', arguments)['error']['code'] == 'invalid_response'
+
+
+@pytest.mark.parametrize('values', [{'offset': True}, {'limit': 101}, {'offset': -1}, {'limit': 0}])
+def test_invalid_context_bounds_do_not_request_private_context(tmp_path, values):
+    svc, seen = service(tmp_path, lambda req: pytest.fail('Must reject before context/catalog request'))
+    result = svc.call('read_context', {'draft_id': 'draft_1', 'revision': 1, 'view_id': 'interfaces', **values})
+    assert result['error']['code'] == 'invalid_arguments'
+    assert len(seen) == 1
