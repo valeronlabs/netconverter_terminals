@@ -185,9 +185,10 @@ def snapshot(workspace, filename: str, max_bytes: int):
 
 
 def _rename(handle: int, directory: int, filename: str) -> None:
+    units = len(filename.encode("utf-16-le")) // 2
     class Rename(ctypes.Structure):
         _fields_ = [("replace", wintypes.BOOL), ("root", wintypes.HANDLE),
-                    ("length", wintypes.DWORD), ("name", wintypes.WCHAR * (len(filename) + 1))]
+                    ("length", wintypes.DWORD), ("name", wintypes.WCHAR * (units + 1))]
     # SetFileInformationByHandle rejects a non-null RootDirectory on some
     # Windows versions. The absolute destination remains confined by the
     # held, no-delete-sharing handles for every ancestor.

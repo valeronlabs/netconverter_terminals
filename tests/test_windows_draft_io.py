@@ -156,7 +156,7 @@ def test_failed_rename_removes_temporary_file(tmp_path, monkeypatch):
 
 
 def test_unicode_workspace_and_input(tmp_path):
-    root = tmp_path / '工程'
+    root = tmp_path / '工程-🔒'
     root.mkdir()
     (root / '配置.cfg').write_bytes(b'hostname synthetic\n')
     workspace = Workspace(root)
