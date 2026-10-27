@@ -132,6 +132,40 @@ def test_client_state_hard_link_is_not_read(tmp_path):
         secure_snapshot(Workspace(tmp_path), 'alias.cfg')
 
 
+def test_external_hard_link_is_not_read(tmp_path):
+    secret = tmp_path.parent / (tmp_path.name + '-outside.cfg')
+    secret.write_text('synthetic external file')
+    os.link(secret, tmp_path / 'alias.cfg')
+    with pytest.raises(WorkspaceError):
+        secure_snapshot(Workspace(tmp_path), 'alias.cfg')
+
+
+def test_link_count_query_failure_is_closed(tmp_path, monkeypatch):
+    from netconverter_cli import windows_draft_io as windows
+    (tmp_path / 'source.cfg').write_text('synthetic')
+    original = windows._k.GetFileInformationByHandleEx
+    def query(handle, info_class, output, size):
+        return False if info_class == 1 else original(handle, info_class, output, size)
+    monkeypatch.setattr(windows._k, 'GetFileInformationByHandleEx', query)
+    with pytest.raises(WorkspaceError):
+        secure_snapshot(Workspace(tmp_path), 'source.cfg')
+
+
+def test_hard_link_creation_and_unlink_blocked_while_snapshot_open(tmp_path, monkeypatch):
+    from netconverter_cli import windows_draft_io as windows
+    source = tmp_path / 'source.cfg'
+    source.write_text('synthetic')
+    original = windows._read
+    def attempt_links(handle, limit):
+        with pytest.raises(OSError):
+            os.link(source, tmp_path / 'racing.cfg')
+        with pytest.raises(OSError):
+            source.unlink()
+        return original(handle, limit)
+    monkeypatch.setattr(windows, '_read', attempt_links)
+    assert secure_snapshot(Workspace(tmp_path), 'source.cfg')[1] == b'synthetic'
+
+
 def test_reparse_point_refused(tmp_path):
     outside = tmp_path.parent / ('outside-' + tmp_path.name)
     outside.mkdir()

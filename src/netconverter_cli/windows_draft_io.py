@@ -73,6 +73,12 @@ class _Attributes(ctypes.Structure):
     _fields_ = [("attributes", wintypes.DWORD), ("tag", wintypes.DWORD)]
 
 
+class _StandardInfo(ctypes.Structure):
+    _fields_ = [("allocation_size", ctypes.c_longlong), ("end_of_file", ctypes.c_longlong),
+                ("number_of_links", wintypes.DWORD), ("delete_pending", wintypes.BOOLEAN),
+                ("directory", wintypes.BOOLEAN)]
+
+
 class _SecurityAttributes(ctypes.Structure):
     _fields_ = [("length", wintypes.DWORD), ("descriptor", wintypes.LPVOID),
                 ("inherit", wintypes.BOOL)]
@@ -134,6 +140,14 @@ def _open(path: Path, access: int, disposition: int, directory: bool) -> int:
             or _k.GetFileType(handle) != 1):
         _k.CloseHandle(handle)
         _fail()
+    if not directory:
+        # Hard links are ordinary NTFS files, not reparse points. A workspace
+        # alias can otherwise expose client state or files outside the workspace.
+        info = _StandardInfo()
+        if (not _k.GetFileInformationByHandleEx(handle, 1, ctypes.byref(info), ctypes.sizeof(info))
+                or info.number_of_links != 1 or info.delete_pending):
+            _k.CloseHandle(handle)
+            _fail()
     return handle
 
 
