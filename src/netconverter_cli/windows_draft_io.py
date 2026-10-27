@@ -63,7 +63,6 @@ _adv.ConvertSidToStringSidW.restype = wintypes.BOOL
 
 _INVALID = ctypes.c_void_p(-1).value
 _READ, _WRITE, _DELETE = 0x80000000, 0x40000000, 0x00010000
-_READ_ATTRIBUTES = 0x80
 _SHARE_READ = 1
 _OPEN_EXISTING, _CREATE_NEW = 3, 1
 _OPEN_REPARSE, _BACKUP = 0x00200000, 0x02000000
@@ -151,12 +150,14 @@ def _directories(path: Path) -> list[int]:
     handles = []
     try:
         current = Path(path.anchor)
-        handles.append(_open(current, _READ_ATTRIBUTES, _OPEN_EXISTING, True))
+        # Read-data access participates in Windows share checks. Attribute-only
+        # opens do not prevent an attacker from renaming the directory.
+        handles.append(_open(current, _READ, _OPEN_EXISTING, True))
         for part in path.parts[1:]:
             if part in {".", ".."} or ":" in part:
                 _fail()
             current /= part
-            handles.append(_open(current, _READ_ATTRIBUTES, _OPEN_EXISTING, True))
+            handles.append(_open(current, _READ, _OPEN_EXISTING, True))
         return handles
     except Exception:
         for handle in reversed(handles):
