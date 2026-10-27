@@ -16,6 +16,20 @@ from pathlib import Path
 import httpx
 import pytest
 
+
+def test_local_tool_annotations_describe_mutation_and_network():
+    from netconverter_cli.mcp_server import LOCAL_TOOLS
+
+    tools = {tool["name"]: tool["annotations"] for tool in LOCAL_TOOLS}
+    assert set(tools) == {"submit_file", "job_status", "wait_for_job", "account", "download"}
+    for name in ("submit_file", "download"):
+        assert tools[name]["readOnlyHint"] is False
+        assert tools[name]["idempotentHint"] is False
+    for name in ("job_status", "wait_for_job", "account"):
+        assert tools[name]["readOnlyHint"] is True
+        assert tools[name]["idempotentHint"] is True
+    assert all(value["openWorldHint"] is True for value in tools.values())
+
 from netconverter_cli.api import StaticCredential
 from netconverter_cli.mcp_server import Bridge, StdioServer
 from netconverter_cli.remote_mcp import RemoteMCP
