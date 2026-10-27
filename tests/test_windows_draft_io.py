@@ -227,6 +227,31 @@ def test_failed_rename_removes_temporary_file(tmp_path, monkeypatch):
     assert not (tmp_path / 'draft_1.revision-1.yaml').exists()
 
 
+@pytest.mark.parametrize('operation', ['snapshot', 'publish'])
+def test_failed_crt_conversion_closes_duplicate_and_allows_cleanup(tmp_path, monkeypatch, operation):
+    import ctypes
+    from ctypes import wintypes
+    from netconverter_cli import windows_draft_io as windows
+    source = tmp_path / 'source.cfg'
+    source.write_bytes(b'synthetic')
+    captured = []
+    def fail_conversion(handle, flags):
+        captured.append(handle)
+        raise OSError('synthetic CRT exhaustion')
+    monkeypatch.setattr(windows.msvcrt, 'open_osfhandle', fail_conversion)
+    with pytest.raises(WorkspaceError):
+        if operation == 'snapshot':
+            secure_snapshot(Workspace(tmp_path), 'source.cfg')
+        else:
+            publish(Workspace(tmp_path))
+    kernel = ctypes.WinDLL('kernel32', use_last_error=True)
+    kernel.GetHandleInformation.argtypes = [wintypes.HANDLE, ctypes.POINTER(wintypes.DWORD)]
+    kernel.GetHandleInformation.restype = wintypes.BOOL
+    assert captured and not kernel.GetHandleInformation(captured[0], ctypes.byref(wintypes.DWORD()))
+    assert not list(tmp_path.glob('.nc-draft-*'))
+    source.rename(tmp_path / 'moved.cfg')
+
+
 def test_unicode_workspace_and_input(tmp_path):
     root = tmp_path / '工程-🔒'
     root.mkdir()

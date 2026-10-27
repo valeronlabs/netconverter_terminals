@@ -168,13 +168,22 @@ def _directories(path: Path) -> list[int]:
         raise
 
 
+def _fd_from_owned_handle(handle: int, flags: int) -> int:
+    """Transfer ownership to the CRT, closing the duplicate on failure."""
+    try:
+        return msvcrt.open_osfhandle(handle, flags)
+    except BaseException:
+        _k.CloseHandle(handle)
+        raise
+
+
 def _read(handle: int, limit: int) -> bytes:
     # Duplicate so the original handle continues to pin the name and contents.
     process = _k.GetCurrentProcess()
     duplicate = wintypes.HANDLE()
     if not _k.DuplicateHandle(process, handle, process, ctypes.byref(duplicate), 0, False, 2):
         _fail()
-    fd = msvcrt.open_osfhandle(duplicate.value, os.O_RDONLY | os.O_BINARY)
+    fd = _fd_from_owned_handle(duplicate.value, os.O_RDONLY | os.O_BINARY)
     try:
         info = os.fstat(fd)
         if not stat.S_ISREG(info.st_mode) or not 0 < info.st_size <= limit:
@@ -319,7 +328,7 @@ def publish(workspace, filename: str, content: bytes, sha256: str) -> Path:
         process = _k.GetCurrentProcess()
         if not _k.DuplicateHandle(process, handle, process, ctypes.byref(duplicate), 0, False, 2):
             _fail()
-        fd = msvcrt.open_osfhandle(duplicate.value, os.O_WRONLY | os.O_BINARY)
+        fd = _fd_from_owned_handle(duplicate.value, os.O_WRONLY | os.O_BINARY)
         try:
             remaining = memoryview(content)
             while remaining:
