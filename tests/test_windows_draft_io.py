@@ -151,19 +151,19 @@ def test_link_count_query_failure_is_closed(tmp_path, monkeypatch):
         secure_snapshot(Workspace(tmp_path), 'source.cfg')
 
 
-def test_hard_link_creation_and_unlink_blocked_while_snapshot_open(tmp_path, monkeypatch):
+def test_hard_link_created_while_snapshot_open_is_refused(tmp_path, monkeypatch):
     from netconverter_cli import windows_draft_io as windows
     source = tmp_path / 'source.cfg'
     source.write_text('synthetic')
     original = windows._read
     def attempt_links(handle, limit):
-        with pytest.raises(OSError):
-            os.link(source, tmp_path / 'racing.cfg')
+        os.link(source, tmp_path / 'racing.cfg')
         with pytest.raises(OSError):
             source.unlink()
         return original(handle, limit)
     monkeypatch.setattr(windows, '_read', attempt_links)
-    assert secure_snapshot(Workspace(tmp_path), 'source.cfg')[1] == b'synthetic'
+    with pytest.raises(WorkspaceError):
+        secure_snapshot(Workspace(tmp_path), 'source.cfg')
 
 
 def test_reparse_point_refused(tmp_path):

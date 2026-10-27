@@ -141,14 +141,21 @@ def _open(path: Path, access: int, disposition: int, directory: bool) -> int:
         _k.CloseHandle(handle)
         _fail()
     if not directory:
-        # Hard links are ordinary NTFS files, not reparse points. A workspace
-        # alias can otherwise expose client state or files outside the workspace.
-        info = _StandardInfo()
-        if (not _k.GetFileInformationByHandleEx(handle, 1, ctypes.byref(info), ctypes.sizeof(info))
-                or info.number_of_links != 1 or info.delete_pending):
+        try:
+            _require_single_link(handle)
+        except BaseException:
             _k.CloseHandle(handle)
-            _fail()
+            raise
     return handle
+
+
+def _require_single_link(handle: int) -> None:
+    # A single link cannot prove a file's history if another actor has already
+    # removed its original name. Workspaces must not be writable by attackers.
+    info = _StandardInfo()
+    if (not _k.GetFileInformationByHandleEx(handle, 1, ctypes.byref(info), ctypes.sizeof(info))
+            or info.number_of_links != 1 or info.delete_pending):
+        _fail()
 
 
 def _volume(root: Path) -> None:
@@ -293,6 +300,7 @@ def snapshot(workspace, filename: str, max_bytes: int):
         if _final_path(handle).is_relative_to(state):
             _fail()
         data = _read(handle, max_bytes)
+        _require_single_link(handle)
         if b"\x00" in data:
             _fail()
         data.decode("utf-8")
