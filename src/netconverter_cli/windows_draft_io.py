@@ -56,6 +56,8 @@ _adv.GetTokenInformation.argtypes = [wintypes.HANDLE, ctypes.c_int, wintypes.LPV
 _adv.GetTokenInformation.restype = wintypes.BOOL
 _adv.EqualSid.argtypes = [wintypes.LPVOID, wintypes.LPVOID]
 _adv.EqualSid.restype = wintypes.BOOL
+_adv.ConvertSidToStringSidW.argtypes = [wintypes.LPVOID, ctypes.POINTER(wintypes.LPWSTR)]
+_adv.ConvertSidToStringSidW.restype = wintypes.BOOL
 
 _INVALID = ctypes.c_void_p(-1).value
 _READ, _WRITE, _DELETE = 0x80000000, 0x40000000, 0x00010000
@@ -79,6 +81,29 @@ def _fail():
     raise WorkspaceError("Guided file could not be accessed securely")
 
 
+def _current_user_sid_text() -> str:
+    token, sid_text = wintypes.HANDLE(), wintypes.LPWSTR()
+    try:
+        if not _adv.OpenProcessToken(_k.GetCurrentProcess(), 8, ctypes.byref(token)):
+            _fail()
+        size = wintypes.DWORD()
+        _adv.GetTokenInformation(token, 1, None, 0, ctypes.byref(size))
+        if not size.value:
+            _fail()
+        info = ctypes.create_string_buffer(size.value)
+        if not _adv.GetTokenInformation(token, 1, info, size.value, ctypes.byref(size)):
+            _fail()
+        user_sid = ctypes.cast(info, ctypes.POINTER(wintypes.LPVOID)).contents
+        if not _adv.ConvertSidToStringSidW(user_sid, ctypes.byref(sid_text)):
+            _fail()
+        return sid_text.value
+    finally:
+        if sid_text:
+            _k.LocalFree(sid_text)
+        if token.value:
+            _k.CloseHandle(token)
+
+
 def _open(path: Path, access: int, disposition: int, directory: bool) -> int:
     descriptor = wintypes.LPVOID()
     security = None
@@ -86,7 +111,8 @@ def _open(path: Path, access: int, disposition: int, directory: bool) -> int:
         # Protect the DACL against inherited workspace permissions. OW is the
         # Windows OWNER RIGHTS SID, so only the file owner has an allow ACE.
         if not _adv.ConvertStringSecurityDescriptorToSecurityDescriptorW(
-                "D:P(A;;FA;;;OW)", 1, ctypes.byref(descriptor), None):
+                "O:" + _current_user_sid_text() + "D:P(A;;FA;;;OW)",
+                1, ctypes.byref(descriptor), None):
             _fail()
         security = _SecurityAttributes(ctypes.sizeof(_SecurityAttributes), descriptor, False)
     try:
