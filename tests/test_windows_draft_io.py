@@ -184,6 +184,23 @@ def test_source_handle_denies_concurrent_replacement_and_write(tmp_path, monkeyp
     assert secure_snapshot(Workspace(tmp_path), 'source.cfg')[1] == b'original'
 
 
+def test_workspace_pinned_before_source_file_is_opened(tmp_path, monkeypatch):
+    from netconverter_cli import windows_draft_io as windows
+    root = tmp_path / 'workspace'
+    root.mkdir()
+    source = root / 'source.cfg'
+    source.write_bytes(b'original')
+    workspace = Workspace(root)
+    original = windows._open
+    def racing_open(path, access, disposition, directory):
+        if path == source and not directory:
+            with pytest.raises(PermissionError):
+                root.rename(tmp_path / 'moved')
+        return original(path, access, disposition, directory)
+    monkeypatch.setattr(windows, '_open', racing_open)
+    assert secure_snapshot(workspace, 'source.cfg')[1] == b'original'
+
+
 def test_held_workspace_cannot_be_renamed_during_publication(tmp_path, monkeypatch):
     from netconverter_cli import windows_draft_io as windows
     root = tmp_path / 'workspace'
