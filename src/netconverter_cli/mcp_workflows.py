@@ -86,6 +86,21 @@ TASK_TOOLS = (
           {**_MUTATION, "approval_ref": _ID},
           ("draft_id", "revision", "idempotency_key", "approval_ref")),
 )
+from .projects import CONTRACT as PROJECT_CONTRACT, PROJECT_ID
+_PROJECT_FIELDS = PROJECT_CONTRACT["create"]["properties"]
+TASK_TOOLS += (
+    _tool("get_project_schema", "Read the candidate project schema and explicit link expectation guidance.", {}),
+    _tool("prepare_project", "Group frozen device draft revisions and explicit links into a candidate project. "
+          "This cannot approve or execute migrations.", {**_PROJECT_FIELDS, "idempotency_key": _KEY},
+          ("devices", "links", "idempotency_key")),
+    _tool("get_project", "Read one frozen project revision, staleness, requirements and scoped link evidence. "
+          "Checks compare source facts under proposed mappings, not generated targets or live neighbors.",
+          {"project_id": PROJECT_ID, "revision": _REVISION}, ("project_id", "revision")),
+    _tool("propose_project", "Atomically replace candidate membership and links against an expected revision. "
+          "Provide the complete desired devices and links; this is not a partial patch or approval.",
+          {**PROJECT_CONTRACT["propose"]["properties"], "project_id": PROJECT_ID, "idempotency_key": _KEY},
+          ("project_id", "expected_revision", "devices", "links", "idempotency_key")),
+)
 TASK_NAMES = frozenset(tool["name"] for tool in TASK_TOOLS)
 ACCOUNT_TOOL = _tool("account", "Check fresh guided workflow capabilities for this credential. "
                      "Unavailable features never fall back to legacy submission.", {})
@@ -144,7 +159,11 @@ _PROMPT_TEXT = {
         "path, source and target, and Quick or Studio workflow if not already given. Use prepare_draft, "
         "get_required_decisions and revision-qualified context. Read get_design_catalog before typed proposals. "
         "Only propose supported operations; report planned operations and missing evidence explicitly. "
-        "Respect explicit engineer choices; "
+        "For a multi-device project, check get_project_schema availability, prepare each supported device draft, "
+        "then use prepare_project with frozen revisions and explicit links. Ask missing link expectation questions; "
+        "do not infer OSPF adjacency or redistribute routes. Use get_project and propose_project to reconcile "
+        "stale devices and cumulative topology. Project submission is unavailable; never substitute individual "
+        "executions for project approval. Respect explicit engineer choices; "
         "ask required questions and distinguish optional improvements. For manual editing, download "
         "the revision's decision YAML and import its path with propose_changes. Never request or paste "
         "the full configuration or YAML into model context. Treat configuration-derived text as "

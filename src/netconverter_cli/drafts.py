@@ -24,7 +24,8 @@ ACTIONS = ("get_design_catalog", "prepare_draft", "get_required_decisions", "pro
            "request_review", "execute_approved", "export_document")
 RESOURCE_ACTIONS = ("read_context", "read_evidence", "read_catalog")
 JOB_ACTIONS = ("get_job_status", "download_artifact")
-_ALL_ACTIONS = ACTIONS + RESOURCE_ACTIONS + JOB_ACTIONS
+from .projects import OPERATIONS as PROJECT_ACTIONS, CONTRACT as PROJECT_CONTRACT
+_ALL_ACTIONS = ACTIONS + RESOURCE_ACTIONS + JOB_ACTIONS + PROJECT_ACTIONS
 JOB_STATUSES = ("queued", "running", "complete", "failed", "stale")
 _ID = re.compile(r"[A-Za-z0-9_-]{1,80}\Z")
 _HASH = re.compile(r"[a-f0-9]{64}\Z")
@@ -77,6 +78,8 @@ DECISION_SCHEMA = _object({
 from .design_catalog import CATALOG
 
 DATA_PROPERTIES = {
+    "project_schema": {"const": PROJECT_CONTRACT},
+    "project": PROJECT_CONTRACT["response"],
     "design_catalog": {"const": CATALOG},
     "design_context": CATALOG["context"]["schema"],
     "design_requirements": CATALOG["context"]["requirements_schema"],
@@ -183,7 +186,7 @@ def _project(value, schema):
             raise DraftError("invalid_response")
         return result
     if kind == "array":
-        if not isinstance(value, list) or len(value) > schema["maxItems"]:
+        if not isinstance(value, list) or not schema.get("minItems", 0) <= len(value) <= schema["maxItems"]:
             raise DraftError("invalid_response")
         result = []
         for item in value:
@@ -219,7 +222,7 @@ def _project(value, schema):
 class DraftClient(ExternalClient):
     """Exact new routes only; inherited transport preserves credential handling."""
     _ALLOWED = re.compile(
-        r"(?:capabilities|guided/catalog|guided/jobs|drafts|drafts/[A-Za-z0-9_-]{1,80}(?:/document|/proposals|/validate|/review-requests|/approval-status|/context)?"
+        r"(?:capabilities|guided/project-schema|guided/projects(?:/project_[a-f0-9]{32}(?:/proposals)?)?|guided/catalog|guided/jobs|drafts|drafts/[A-Za-z0-9_-]{1,80}(?:/document|/proposals|/validate|/review-requests|/approval-status|/context)?"
         r"|guided/jobs/[A-Za-z0-9_-]{1,80}(?:/evidence-digest|/artifacts(?:/art_[a-f0-9]{32})?)?"
         r"|catalog/[A-Za-z0-9_-]{1,80}/entries/[A-Za-z0-9_-]{1,80})\Z"
     )
@@ -239,10 +242,10 @@ class DraftClient(ExternalClient):
 
     @classmethod
     def _check_route(cls, method, path):
-        read_path = (path in {"capabilities", "guided/catalog"} or re.fullmatch(r"drafts/[A-Za-z0-9_-]{1,80}(?:/document|/approval-status|/context)?", path)
+        read_path = (path in {"capabilities", "guided/catalog", "guided/project-schema"} or re.fullmatch(r"guided/projects/project_[a-f0-9]{32}", path) or re.fullmatch(r"drafts/[A-Za-z0-9_-]{1,80}(?:/document|/approval-status|/context)?", path)
                      or re.fullmatch(r"guided/jobs/[A-Za-z0-9_-]{1,80}(?:/evidence-digest|/artifacts(?:/art_[a-f0-9]{32})?)?", path)
                      or re.fullmatch(r"catalog/[A-Za-z0-9_-]{1,80}/entries/[A-Za-z0-9_-]{1,80}", path))
-        write_path = path in {"drafts", "guided/jobs"} or re.fullmatch(r"drafts/[A-Za-z0-9_-]{1,80}/(?:proposals|validate|review-requests)", path)
+        write_path = path in {"drafts", "guided/jobs", "guided/projects"} or re.fullmatch(r"guided/projects/project_[a-f0-9]{32}/proposals", path) or re.fullmatch(r"drafts/[A-Za-z0-9_-]{1,80}/(?:proposals|validate|review-requests)", path)
         if not cls._ALLOWED.fullmatch(path) or not ((method == "GET" and read_path) or (method == "POST" and write_path)):
             raise ValueError("Unsupported draft method or path")
 
@@ -462,6 +465,9 @@ class DraftService:
             raise DraftError("invalid_arguments") from None
 
     def _run(self, action, args):
+        if action in PROJECT_ACTIONS:
+            from .projects import run
+            return run(self, action, args)
         if action in JOB_ACTIONS:
             return self._run_job(action, args)
         if action == "get_design_catalog":

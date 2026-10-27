@@ -352,7 +352,7 @@ def _connect_one(args, root, ask):
 ACCOUNT_COMMANDS = frozenset({"login", "logout", "whoami", "update"})
 # No passive update notice: the MCP server's stdout is the protocol stream, and
 # `update` reports versions itself.
-NO_UPDATE_NOTICE = frozenset({"mcp", "update", "draft"})
+NO_UPDATE_NOTICE = frozenset({"mcp", "update", "draft", "project"})
 
 
 # Used when the current folder can't be written (a shell sitting in "/", a
@@ -454,6 +454,8 @@ def parser():
     subs.add_parser("capabilities", help="vendors, conversion paths and limits for your credential")
     from .draft_cli import add_parser as add_draft_parser
     add_draft_parser(subs)
+    from .project_cli import add_parser as add_project_parser
+    add_project_parser(subs)
     subs.add_parser("setup")
     subs.add_parser("jobs")
     resume = subs.add_parser("resume")
@@ -517,8 +519,11 @@ def main(argv=None):
     if args.command == "connect":
         run_connect(args)
         return
-    if args.command == "draft":
-        from .draft_cli import run as run_draft
+    if args.command in {"draft", "project"}:
+        if args.command == "project":
+            from .project_cli import run as run_draft
+        else:
+            from .draft_cli import run as run_draft
 
         try:
             credential = rest_credential(args.server, settings, interactive=False)

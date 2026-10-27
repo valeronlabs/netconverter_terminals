@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+- **Candidate multi-device project adapters (development preview).** New `project`
+  commands and capability-gated guided MCP tools use generated server schemas,
+  explicit frozen device revisions and complete link proposals. Bounded evidence
+  preserves missing decisions and staleness, verifies snapshot/evidence hashes,
+  and never grants project approval or execution. Server opt-in and deployment,
+  target/runtime qualification and real desktop acceptance remain required.
+
 - **Typed migration proposals (development preview).** A generated server catalog
   describes interface/zone mappings, source scope and explicit policy options.
   CLI and guided MCP validate complete batches and require a matching server

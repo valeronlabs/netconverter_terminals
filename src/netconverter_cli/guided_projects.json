@@ -1,0 +1,605 @@
+{
+  "approval_available": false,
+  "create": {
+    "additionalProperties": false,
+    "properties": {
+      "devices": {
+        "items": {
+          "additionalProperties": false,
+          "properties": {
+            "device_id": {
+              "pattern": "^[a-z][a-z0-9_-]{0,63}$",
+              "type": "string"
+            },
+            "draft_id": {
+              "pattern": "^draft_[a-f0-9]{32}$",
+              "type": "string"
+            },
+            "revision": {
+              "maximum": 9007199254740991,
+              "minimum": 1,
+              "type": "integer"
+            }
+          },
+          "required": [
+            "device_id",
+            "draft_id",
+            "revision"
+          ],
+          "type": "object"
+        },
+        "maxItems": 20,
+        "minItems": 1,
+        "type": "array"
+      },
+      "links": {
+        "items": {
+          "additionalProperties": false,
+          "properties": {
+            "endpoints": {
+              "items": {
+                "additionalProperties": false,
+                "properties": {
+                  "device_id": {
+                    "pattern": "^[a-z][a-z0-9_-]{0,63}$",
+                    "type": "string"
+                  },
+                  "interface": {
+                    "pattern": "^[A-Za-z0-9][A-Za-z0-9/_.:-]{0,127}$",
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "device_id",
+                  "interface"
+                ],
+                "type": "object"
+              },
+              "maxItems": 2,
+              "minItems": 2,
+              "type": "array"
+            },
+            "expectations": {
+              "additionalProperties": false,
+              "properties": {
+                "ospf_adjacency": {
+                  "type": "boolean"
+                },
+                "same_subnet": {
+                  "type": "boolean"
+                },
+                "same_vlan_tag": {
+                  "type": "boolean"
+                }
+              },
+              "required": [],
+              "type": "object"
+            }
+          },
+          "required": [
+            "endpoints"
+          ],
+          "type": "object"
+        },
+        "maxItems": 40,
+        "type": "array"
+      }
+    },
+    "required": [
+      "devices",
+      "links"
+    ],
+    "type": "object"
+  },
+  "execution_available": false,
+  "link_expectation_guidance": {
+    "ospf_adjacency": "Should these endpoints form an OSPF adjacency? This does not configure OSPF.",
+    "same_subnet": "Should both endpoints share one connected IP prefix?",
+    "same_vlan_tag": "Should both endpoints use the same explicit VLAN tag?"
+  },
+  "propose": {
+    "additionalProperties": false,
+    "properties": {
+      "devices": {
+        "items": {
+          "additionalProperties": false,
+          "properties": {
+            "device_id": {
+              "pattern": "^[a-z][a-z0-9_-]{0,63}$",
+              "type": "string"
+            },
+            "draft_id": {
+              "pattern": "^draft_[a-f0-9]{32}$",
+              "type": "string"
+            },
+            "revision": {
+              "maximum": 9007199254740991,
+              "minimum": 1,
+              "type": "integer"
+            }
+          },
+          "required": [
+            "device_id",
+            "draft_id",
+            "revision"
+          ],
+          "type": "object"
+        },
+        "maxItems": 20,
+        "minItems": 1,
+        "type": "array"
+      },
+      "expected_revision": {
+        "maximum": 9007199254740991,
+        "minimum": 1,
+        "type": "integer"
+      },
+      "links": {
+        "items": {
+          "additionalProperties": false,
+          "properties": {
+            "endpoints": {
+              "items": {
+                "additionalProperties": false,
+                "properties": {
+                  "device_id": {
+                    "pattern": "^[a-z][a-z0-9_-]{0,63}$",
+                    "type": "string"
+                  },
+                  "interface": {
+                    "pattern": "^[A-Za-z0-9][A-Za-z0-9/_.:-]{0,127}$",
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "device_id",
+                  "interface"
+                ],
+                "type": "object"
+              },
+              "maxItems": 2,
+              "minItems": 2,
+              "type": "array"
+            },
+            "expectations": {
+              "additionalProperties": false,
+              "properties": {
+                "ospf_adjacency": {
+                  "type": "boolean"
+                },
+                "same_subnet": {
+                  "type": "boolean"
+                },
+                "same_vlan_tag": {
+                  "type": "boolean"
+                }
+              },
+              "required": [],
+              "type": "object"
+            }
+          },
+          "required": [
+            "endpoints"
+          ],
+          "type": "object"
+        },
+        "maxItems": 40,
+        "type": "array"
+      }
+    },
+    "required": [
+      "devices",
+      "links",
+      "expected_revision"
+    ],
+    "type": "object"
+  },
+  "response": {
+    "additionalProperties": false,
+    "properties": {
+      "approval_available": {
+        "const": false
+      },
+      "content_sha256": {
+        "pattern": "^[a-f0-9]{64}$",
+        "type": "string"
+      },
+      "cross_device_evidence": {
+        "additionalProperties": false,
+        "properties": {
+          "basis": {
+            "const": "frozen_source_facts_with_proposed_interface_mapping"
+          },
+          "checks": {
+            "items": {
+              "additionalProperties": false,
+              "properties": {
+                "code": {
+                  "enum": [
+                    "link_endpoints",
+                    "link_subnet",
+                    "link_unique_address",
+                    "link_usable_address",
+                    "link_vlan_tag",
+                    "link_routing_area",
+                    "link_neighbor_expectation",
+                    "link_vlan_availability",
+                    "target_preservation"
+                  ]
+                },
+                "link_index": {
+                  "maximum": 39,
+                  "minimum": 0,
+                  "type": "integer"
+                },
+                "reason": {
+                  "enum": [
+                    "device_revision_changed",
+                    "decision_dependency_invalidated",
+                    "source_context_incomplete",
+                    "endpoint_mapping_ambiguous",
+                    "endpoint_source_unavailable",
+                    "unique_mapped_source_endpoints",
+                    "shared_subnet_not_requested",
+                    "static_address_evidence_missing_or_inconsistent",
+                    "same_connected_prefix",
+                    "connected_prefix_mismatch",
+                    "distinct_endpoint_addresses",
+                    "duplicate_endpoint_address",
+                    "usable_endpoint_addresses",
+                    "network_or_broadcast_endpoint",
+                    "same_vlan_tag_not_requested",
+                    "same_observed_tag",
+                    "observed_tag_mismatch",
+                    "explicit_tag_evidence_missing",
+                    "ospf_adjacency_not_requested",
+                    "same_explicit_ospf_area",
+                    "explicit_ospf_area_mismatch",
+                    "explicit_ospf_membership_required",
+                    "ospf_endpoint_passive_or_disabled",
+                    "ospf_timer_mismatch",
+                    "authentication_and_operational_neighbor_evidence_required",
+                    "qualified_desired_state_evidence_required"
+                  ]
+                },
+                "status": {
+                  "enum": [
+                    "pass",
+                    "fail",
+                    "inconclusive",
+                    "not_run"
+                  ]
+                }
+              },
+              "required": [
+                "link_index",
+                "code",
+                "status",
+                "reason"
+              ],
+              "type": "object"
+            },
+            "maxItems": 400,
+            "type": "array"
+          },
+          "design_requirements": {
+            "items": {
+              "additionalProperties": false,
+              "properties": {
+                "code": {
+                  "const": "confirm_link_expectations"
+                },
+                "fields": {
+                  "items": {
+                    "enum": [
+                      "same_subnet",
+                      "same_vlan_tag",
+                      "ospf_adjacency"
+                    ]
+                  },
+                  "maxItems": 3,
+                  "type": "array"
+                },
+                "link_index": {
+                  "maximum": 39,
+                  "minimum": 0,
+                  "type": "integer"
+                },
+                "required": {
+                  "const": true
+                }
+              },
+              "required": [
+                "code",
+                "link_index",
+                "required",
+                "fields"
+              ],
+              "type": "object"
+            },
+            "maxItems": 40,
+            "type": "array"
+          },
+          "lab": {
+            "const": "not_run"
+          },
+          "operational_evidence_used": {
+            "const": false
+          },
+          "project_content_sha256": {
+            "pattern": "^[a-f0-9]{64}$",
+            "type": "string"
+          },
+          "scope": {
+            "const": "declared_links_only"
+          },
+          "status": {
+            "enum": [
+              "pass",
+              "fail",
+              "inconclusive",
+              "not_run"
+            ]
+          },
+          "target_runtime": {
+            "const": "not_run"
+          },
+          "version": {
+            "const": "project_links_1"
+          }
+        },
+        "required": [
+          "version",
+          "basis",
+          "status",
+          "scope",
+          "operational_evidence_used",
+          "project_content_sha256",
+          "checks",
+          "design_requirements",
+          "target_runtime",
+          "lab"
+        ],
+        "type": "object"
+      },
+      "current_revision": {
+        "maximum": 9007199254740991,
+        "minimum": 1,
+        "type": "integer"
+      },
+      "gaps": {
+        "items": {
+          "enum": [
+            "project_submission_not_qualified",
+            "cross_device_target_validation_not_run"
+          ]
+        },
+        "maxItems": 2,
+        "type": "array"
+      },
+      "project_id": {
+        "pattern": "^project_[a-f0-9]{32}$",
+        "type": "string"
+      },
+      "revision": {
+        "maximum": 9007199254740991,
+        "minimum": 1,
+        "type": "integer"
+      },
+      "snapshot": {
+        "additionalProperties": false,
+        "properties": {
+          "devices": {
+            "items": {
+              "additionalProperties": false,
+              "properties": {
+                "catalog_version": {
+                  "pattern": "^[A-Za-z0-9_.:-]{1,128}$",
+                  "type": "string"
+                },
+                "content_sha256": {
+                  "pattern": "^[a-f0-9]{64}$",
+                  "type": "string"
+                },
+                "device_id": {
+                  "pattern": "^[a-z][a-z0-9_-]{0,63}$",
+                  "type": "string"
+                },
+                "document_sha256": {
+                  "pattern": "^[a-f0-9]{64}$",
+                  "type": "string"
+                },
+                "draft_id": {
+                  "pattern": "^draft_[a-f0-9]{32}$",
+                  "type": "string"
+                },
+                "engine_version": {
+                  "pattern": "^[A-Za-z0-9_.:-]{1,128}$",
+                  "type": "string"
+                },
+                "intent_sha256": {
+                  "pattern": "^[a-f0-9]{64}$",
+                  "type": "string"
+                },
+                "revision": {
+                  "maximum": 9007199254740991,
+                  "minimum": 1,
+                  "type": "integer"
+                },
+                "schema_version": {
+                  "pattern": "^[A-Za-z0-9_.:-]{1,128}$",
+                  "type": "string"
+                },
+                "source_sha256": {
+                  "pattern": "^[a-f0-9]{64}$",
+                  "type": "string"
+                },
+                "source_vendor": {
+                  "pattern": "^[A-Za-z0-9_.:-]{1,128}$",
+                  "type": "string"
+                },
+                "target_vendor": {
+                  "pattern": "^[A-Za-z0-9_.:-]{1,128}$",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "device_id",
+                "draft_id",
+                "revision",
+                "source_sha256",
+                "document_sha256",
+                "intent_sha256",
+                "content_sha256",
+                "engine_version",
+                "catalog_version",
+                "schema_version",
+                "source_vendor",
+                "target_vendor"
+              ],
+              "type": "object"
+            },
+            "maxItems": 20,
+            "minItems": 1,
+            "type": "array"
+          },
+          "links": {
+            "items": {
+              "additionalProperties": false,
+              "properties": {
+                "endpoints": {
+                  "items": {
+                    "additionalProperties": false,
+                    "properties": {
+                      "device_id": {
+                        "pattern": "^[a-z][a-z0-9_-]{0,63}$",
+                        "type": "string"
+                      },
+                      "interface": {
+                        "pattern": "^[A-Za-z0-9][A-Za-z0-9/_.:-]{0,127}$",
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "device_id",
+                      "interface"
+                    ],
+                    "type": "object"
+                  },
+                  "maxItems": 2,
+                  "minItems": 2,
+                  "type": "array"
+                },
+                "expectations": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "ospf_adjacency": {
+                      "type": "boolean"
+                    },
+                    "same_subnet": {
+                      "type": "boolean"
+                    },
+                    "same_vlan_tag": {
+                      "type": "boolean"
+                    }
+                  },
+                  "required": [],
+                  "type": "object"
+                }
+              },
+              "required": [
+                "endpoints"
+              ],
+              "type": "object"
+            },
+            "maxItems": 40,
+            "type": "array"
+          },
+          "schema_version": {
+            "enum": [
+              "project_1",
+              "project_2"
+            ]
+          }
+        },
+        "required": [
+          "schema_version",
+          "devices",
+          "links"
+        ],
+        "type": "object"
+      },
+      "source_fields_untrusted": {
+        "const": true
+      },
+      "stale_devices": {
+        "items": {
+          "pattern": "^[a-z][a-z0-9_-]{0,63}$",
+          "type": "string"
+        },
+        "maxItems": 20,
+        "type": "array"
+      },
+      "state": {
+        "enum": [
+          "candidate",
+          "stale"
+        ]
+      },
+      "submission_readiness": {
+        "const": "blocked"
+      },
+      "validation": {
+        "additionalProperties": false,
+        "properties": {
+          "cross_device_consistency": {
+            "enum": [
+              "pass",
+              "fail",
+              "inconclusive",
+              "not_run"
+            ]
+          },
+          "lab": {
+            "const": "not_run"
+          },
+          "target_runtime": {
+            "const": "not_run"
+          }
+        },
+        "required": [
+          "cross_device_consistency",
+          "target_runtime",
+          "lab"
+        ],
+        "type": "object"
+      },
+      "view_enforced_by": {
+        "const": "server"
+      },
+      "view_mode": {
+        "const": "selected"
+      }
+    },
+    "required": [
+      "project_id",
+      "revision",
+      "current_revision",
+      "content_sha256",
+      "snapshot",
+      "stale_devices",
+      "state",
+      "submission_readiness",
+      "approval_available",
+      "validation",
+      "cross_device_evidence",
+      "gaps",
+      "view_mode",
+      "view_enforced_by",
+      "source_fields_untrusted"
+    ],
+    "type": "object"
+  },
+  "status": "implemented_awaiting_qualification",
+  "version": "project_2"
+}
