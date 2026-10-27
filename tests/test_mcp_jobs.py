@@ -11,7 +11,6 @@ from jsonschema import Draft202012Validator, ValidationError
 from netconverter_cli.api import StaticCredential
 from netconverter_cli.drafts import ACTIONS, JOB_ACTIONS, OUTPUT_SCHEMA, RESOURCE_ACTIONS
 from netconverter_cli.mcp_server import Bridge
-from netconverter_cli.mcp_workflows import TASK_TOOLS
 
 
 SERVER = "https://api.example/external/v1"
@@ -140,12 +139,17 @@ def test_real_job_status_and_artifact_download_return_receipts_only(tmp_path):
     assert all(request.method == "GET" for request in server.requests)
 
 
-def test_catalog_preserves_six_tool_order_and_scopes_download_branches(tmp_path):
+def test_legacy_guided_catalog_preserves_order_without_project_capability(tmp_path):
     server = JobServer()
     bridge, _ = make_bridge(tmp_path, server)
     tools = bridge.list_tools()
     names = [tool["name"] for tool in tools]
-    assert names == ["account", *[tool["name"] for tool in TASK_TOOLS], "job_status", "wait_for_job", "download"]
+    assert names == ["account", "get_design_catalog", "prepare_draft", "get_required_decisions",
+                     "read_context", "propose_changes", "validate_draft", "request_review", "execute_approved",
+                     "job_status", "wait_for_job", "download"]
+    # This server advertises only the original device workflow. New project
+    # tools must not silently appear when their capability is absent.
+    assert "prepare_project" not in names
     assert tools == bridge.list_tools()
     schema = tools[-1]["inputSchema"]
     Draft202012Validator.check_schema(schema)
