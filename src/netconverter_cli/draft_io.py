@@ -34,14 +34,17 @@ def secure_publish_file(workspace: Workspace, filename: str, content: bytes, sha
     Atomic hard-link publication never overwrites a destination. A moved root
     fails closed and temporary bytes are removed using the held descriptor.
     """
-    if (os.name != "posix" or not hasattr(os, "O_NOFOLLOW") or not hasattr(os, "O_DIRECTORY") or
-            any(fn not in os.supports_dir_fd for fn in (os.open, os.stat, os.link, os.unlink))):
-        raise WorkspaceError("Secure draft file access is unavailable on this platform")
     if (not isinstance(filename, str) or not re.fullmatch(r"[A-Za-z0-9_-][A-Za-z0-9._-]{0,200}", filename) or
             ".." in filename or type(max_bytes) is not int or not 0 < max_bytes <= MAX_ARTIFACT_BYTES or
             not isinstance(content, bytes) or not 0 < len(content) <= max_bytes or not isinstance(sha256, str) or
             not re.fullmatch(r"[a-f0-9]{64}", sha256) or hashlib.sha256(content).hexdigest() != sha256):
         raise WorkspaceError("Invalid draft artifact")
+    if os.name == "nt":
+        from .windows_draft_io import publish
+        return publish(workspace, filename, content, sha256)
+    if (os.name != "posix" or not hasattr(os, "O_NOFOLLOW") or not hasattr(os, "O_DIRECTORY") or
+            any(fn not in os.supports_dir_fd for fn in (os.open, os.stat, os.link, os.unlink))):
+        raise WorkspaceError("Secure draft file access is unavailable on this platform")
     descriptors, links = [], []
     temporary = None
     published = False
@@ -145,6 +148,9 @@ def secure_publish_file(workspace: Workspace, filename: str, content: bytes, sha
 
 
 def secure_snapshot(workspace: Workspace, filename: str, max_bytes: int = MAX_CONFIG_BYTES) -> tuple[Path, bytes, str]:
+    if os.name == "nt":
+        from .windows_draft_io import snapshot
+        return snapshot(workspace, filename, max_bytes)
     if (os.name != "posix" or not hasattr(os, "O_NOFOLLOW") or
             not hasattr(os, "O_DIRECTORY") or os.open not in os.supports_dir_fd or
             os.stat not in os.supports_dir_fd):

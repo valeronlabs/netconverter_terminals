@@ -1,0 +1,219 @@
+"""Windows guided file IO using held handles and no-replace publication.
+
+Only local NTFS volumes are supported. Directory handles deny write/delete
+sharing for the lifetime of each operation; reparse points are refused. This
+module is imported only on Windows and never handles model-selected URLs.
+"""
+from __future__ import annotations
+
+import ctypes
+from ctypes import wintypes
+import hashlib
+import msvcrt
+import os
+from pathlib import Path
+import stat
+import uuid
+
+from .workspace import WorkspaceError
+
+_k = ctypes.WinDLL("kernel32", use_last_error=True)
+_k.CreateFileW.argtypes = [wintypes.LPCWSTR, wintypes.DWORD, wintypes.DWORD,
+                          wintypes.LPVOID, wintypes.DWORD, wintypes.DWORD, wintypes.HANDLE]
+_k.CreateFileW.restype = wintypes.HANDLE
+_k.CloseHandle.argtypes = [wintypes.HANDLE]
+_k.CloseHandle.restype = wintypes.BOOL
+_k.GetFileType.argtypes = [wintypes.HANDLE]
+_k.GetFileType.restype = wintypes.DWORD
+_k.GetFileInformationByHandleEx.argtypes = [wintypes.HANDLE, ctypes.c_int, wintypes.LPVOID, wintypes.DWORD]
+_k.GetFileInformationByHandleEx.restype = wintypes.BOOL
+_k.SetFileInformationByHandle.argtypes = [wintypes.HANDLE, ctypes.c_int, wintypes.LPVOID, wintypes.DWORD]
+_k.SetFileInformationByHandle.restype = wintypes.BOOL
+_k.GetDriveTypeW.argtypes = [wintypes.LPCWSTR]
+_k.GetDriveTypeW.restype = wintypes.UINT
+_k.GetVolumeInformationW.argtypes = [wintypes.LPCWSTR, wintypes.LPWSTR, wintypes.DWORD,
+                                     wintypes.LPVOID, wintypes.LPVOID, wintypes.LPVOID,
+                                     wintypes.LPWSTR, wintypes.DWORD]
+_k.GetVolumeInformationW.restype = wintypes.BOOL
+
+_INVALID = ctypes.c_void_p(-1).value
+_READ, _WRITE, _DELETE = 0x80000000, 0x40000000, 0x00010000
+_READ_ATTRIBUTES = 0x80
+_SHARE_READ = 1
+_OPEN_EXISTING, _CREATE_NEW = 3, 1
+_OPEN_REPARSE, _BACKUP = 0x00200000, 0x02000000
+_REPARSE, _DIRECTORY = 0x400, 0x10
+
+
+class _Attributes(ctypes.Structure):
+    _fields_ = [("attributes", wintypes.DWORD), ("tag", wintypes.DWORD)]
+
+
+def _fail():
+    raise WorkspaceError("Guided file could not be accessed securely")
+
+
+def _open(path: Path, access: int, disposition: int, directory: bool) -> int:
+    handle = _k.CreateFileW(str(path), access, _SHARE_READ, None, disposition,
+                            _OPEN_REPARSE | (_BACKUP if directory else 0), None)
+    if handle == _INVALID:
+        raise OSError(ctypes.get_last_error(), "secure file open failed")
+    attrs = _Attributes()
+    if (not _k.GetFileInformationByHandleEx(handle, 9, ctypes.byref(attrs), ctypes.sizeof(attrs))
+            or attrs.attributes & _REPARSE or bool(attrs.attributes & _DIRECTORY) != directory
+            or _k.GetFileType(handle) != 1):
+        _k.CloseHandle(handle)
+        _fail()
+    return handle
+
+
+def _volume(root: Path) -> None:
+    anchor = root.anchor
+    if len(anchor) != 3 or anchor[1:] != ':\\' or _k.GetDriveTypeW(anchor) != 3:
+        _fail()
+    filesystem = ctypes.create_unicode_buffer(64)
+    if not _k.GetVolumeInformationW(anchor, None, 0, None, None, None, filesystem, len(filesystem)):
+        _fail()
+    if filesystem.value.upper() != "NTFS":
+        _fail()
+
+
+def _directories(path: Path) -> list[int]:
+    _volume(path)
+    handles = []
+    try:
+        current = Path(path.anchor)
+        handles.append(_open(current, _READ_ATTRIBUTES, _OPEN_EXISTING, True))
+        for part in path.parts[1:]:
+            if part in {".", ".."} or ":" in part:
+                _fail()
+            current /= part
+            handles.append(_open(current, _READ_ATTRIBUTES, _OPEN_EXISTING, True))
+        return handles
+    except Exception:
+        for handle in reversed(handles):
+            _k.CloseHandle(handle)
+        raise
+
+
+def _read(handle: int, limit: int) -> bytes:
+    # Duplicate so the original handle continues to pin the name and contents.
+    process = _k.GetCurrentProcess()
+    duplicate = wintypes.HANDLE()
+    if not _k.DuplicateHandle(process, handle, process, ctypes.byref(duplicate), 0, False, 2):
+        _fail()
+    fd = msvcrt.open_osfhandle(duplicate.value, os.O_RDONLY | os.O_BINARY)
+    try:
+        info = os.fstat(fd)
+        if not stat.S_ISREG(info.st_mode) or not 0 < info.st_size <= limit:
+            _fail()
+        chunks, left = [], limit + 1
+        while left:
+            part = os.read(fd, min(left, 65536))
+            if not part:
+                break
+            chunks.append(part)
+            left -= len(part)
+        data = b"".join(chunks)
+        if len(data) != info.st_size or os.fstat(fd).st_size != info.st_size:
+            _fail()
+        return data
+    finally:
+        os.close(fd)
+
+
+_k.GetCurrentProcess.restype = wintypes.HANDLE
+_k.DuplicateHandle.argtypes = [wintypes.HANDLE, wintypes.HANDLE, wintypes.HANDLE,
+                               ctypes.POINTER(wintypes.HANDLE), wintypes.DWORD, wintypes.BOOL, wintypes.DWORD]
+_k.DuplicateHandle.restype = wintypes.BOOL
+
+
+def snapshot(workspace, filename: str, max_bytes: int):
+    if not isinstance(filename, str) or not filename or "\x00" in filename:
+        raise WorkspaceError("Invalid draft input path")
+    raw = Path(filename)
+    if ".." in raw.parts or any(":" in p for p in raw.parts[1:]):
+        raise WorkspaceError("Parent traversal or alternate streams are not accepted")
+    candidate = raw if raw.is_absolute() else workspace.root / raw
+    try:
+        relative = candidate.relative_to(workspace.root)
+    except ValueError:
+        raise WorkspaceError("Path is outside the workspace") from None
+    if not relative.parts or relative.parts[0].lower() == ".netconverter":
+        raise WorkspaceError("Select a configuration outside the client state folder")
+    handles, handle = [], None
+    try:
+        handles = _directories(candidate.parent)
+        handle = _open(candidate, _READ, _OPEN_EXISTING, False)
+        data = _read(handle, max_bytes)
+        if b"\x00" in data:
+            _fail()
+        data.decode("utf-8")
+        return candidate, data, hashlib.sha256(data).hexdigest()
+    except (OSError, UnicodeDecodeError, ValueError):
+        raise WorkspaceError("Draft input could not be read securely") from None
+    finally:
+        if handle is not None:
+            _k.CloseHandle(handle)
+        for h in reversed(handles):
+            _k.CloseHandle(h)
+
+
+def _rename(handle: int, directory: int, filename: str) -> None:
+    class Rename(ctypes.Structure):
+        _fields_ = [("replace", wintypes.BOOL), ("root", wintypes.HANDLE),
+                    ("length", wintypes.DWORD), ("name", wintypes.WCHAR * len(filename))]
+    value = Rename(False, directory, len(filename.encode("utf-16-le")), filename)
+    if not _k.SetFileInformationByHandle(handle, 3, ctypes.byref(value), ctypes.sizeof(value)):
+        raise OSError(ctypes.get_last_error(), "secure rename failed")
+
+
+def publish(workspace, filename: str, content: bytes, sha256: str) -> Path:
+    handles, handle, published = [], None, False
+    temporary = workspace.root / (".nc-draft-" + uuid.uuid4().hex)
+    destination = workspace.root / filename
+    try:
+        handles = _directories(workspace.root)
+        try:
+            existing = _open(destination, _READ, _OPEN_EXISTING, False)
+        except OSError as exc:
+            if exc.errno not in (2, 3):
+                raise
+        else:
+            try:
+                if _read(existing, len(content)) != content:
+                    _fail()
+                return destination
+            finally:
+                _k.CloseHandle(existing)
+        handle = _open(temporary, _READ | _WRITE | _DELETE, _CREATE_NEW, False)
+        duplicate = wintypes.HANDLE()
+        process = _k.GetCurrentProcess()
+        if not _k.DuplicateHandle(process, handle, process, ctypes.byref(duplicate), 0, False, 2):
+            _fail()
+        fd = msvcrt.open_osfhandle(duplicate.value, os.O_WRONLY | os.O_BINARY)
+        try:
+            remaining = memoryview(content)
+            while remaining:
+                written = os.write(fd, remaining)
+                if not written:
+                    _fail()
+                remaining = remaining[written:]
+            os.fsync(fd)
+        finally:
+            os.close(fd)
+        _rename(handle, handles[-1], filename)
+        published = True
+        # The data was validated before writing and the write handle has never
+        # allowed a concurrent writer. A no-replace rename pins those bytes.
+        return destination
+    except (OSError, ValueError):
+        raise WorkspaceError("Artifact could not be published securely without replacing a file") from None
+    finally:
+        if handle is not None:
+            if not published:
+                disposition = wintypes.BOOL(True)
+                _k.SetFileInformationByHandle(handle, 4, ctypes.byref(disposition), ctypes.sizeof(disposition))
+            _k.CloseHandle(handle)
+        for h in reversed(handles):
+            _k.CloseHandle(h)
