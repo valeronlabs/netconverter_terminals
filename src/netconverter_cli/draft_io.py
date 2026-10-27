@@ -1,8 +1,7 @@
 """Descriptor-confined input snapshots for the opt-in draft workflow.
 
-POSIX no-follow descriptor traversal is required. Unsupported platforms refuse
-new draft imports rather than weakening this boundary to a check-then-open path.
-Legacy Workspace behavior is intentionally unaffected.
+POSIX uses no-follow descriptor traversal. Windows uses held native handles on
+local NTFS; other platforms fail closed. Legacy Workspace behavior is unaffected.
 """
 from __future__ import annotations
 
