@@ -86,6 +86,14 @@ def test_path_escape_and_streams_refused(tmp_path, name):
         secure_snapshot(Workspace(tmp_path), name)
 
 
+def test_existing_alternate_stream_is_refused(tmp_path):
+    base = tmp_path / 'file'
+    base.write_bytes(b'base')
+    Path(str(base) + ':stream').write_bytes(b'private stream')
+    with pytest.raises(WorkspaceError):
+        secure_snapshot(Workspace(tmp_path), 'file:stream')
+
+
 def test_reparse_point_refused(tmp_path):
     outside = tmp_path.parent / ('outside-' + tmp_path.name)
     outside.mkdir()

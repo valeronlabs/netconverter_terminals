@@ -157,7 +157,8 @@ def snapshot(workspace, filename: str, max_bytes: int):
     if not isinstance(filename, str) or not filename or "\x00" in filename:
         raise WorkspaceError("Invalid draft input path")
     raw = Path(filename)
-    if ".." in raw.parts or any(":" in p for p in raw.parts[1:]):
+    components = raw.parts[1:] if raw.anchor else raw.parts
+    if ".." in raw.parts or any(":" in p for p in components):
         raise WorkspaceError("Parent traversal or alternate streams are not accepted")
     candidate = raw if raw.is_absolute() else workspace.root / raw
     try:
