@@ -35,6 +35,12 @@ _k.GetVolumeInformationW.argtypes = [wintypes.LPCWSTR, wintypes.LPWSTR, wintypes
                                      wintypes.LPVOID, wintypes.LPVOID, wintypes.LPVOID,
                                      wintypes.LPWSTR, wintypes.DWORD]
 _k.GetVolumeInformationW.restype = wintypes.BOOL
+_k.LocalFree.argtypes = [wintypes.HLOCAL]
+_k.LocalFree.restype = wintypes.HLOCAL
+_adv = ctypes.WinDLL("advapi32", use_last_error=True)
+_adv.ConvertStringSecurityDescriptorToSecurityDescriptorW.argtypes = [
+    wintypes.LPCWSTR, wintypes.DWORD, ctypes.POINTER(wintypes.LPVOID), wintypes.LPVOID]
+_adv.ConvertStringSecurityDescriptorToSecurityDescriptorW.restype = wintypes.BOOL
 
 _INVALID = ctypes.c_void_p(-1).value
 _READ, _WRITE, _DELETE = 0x80000000, 0x40000000, 0x00010000
@@ -49,13 +55,32 @@ class _Attributes(ctypes.Structure):
     _fields_ = [("attributes", wintypes.DWORD), ("tag", wintypes.DWORD)]
 
 
+class _SecurityAttributes(ctypes.Structure):
+    _fields_ = [("length", wintypes.DWORD), ("descriptor", wintypes.LPVOID),
+                ("inherit", wintypes.BOOL)]
+
+
 def _fail():
     raise WorkspaceError("Guided file could not be accessed securely")
 
 
 def _open(path: Path, access: int, disposition: int, directory: bool) -> int:
-    handle = _k.CreateFileW(str(path), access, _SHARE_READ, None, disposition,
-                            _OPEN_REPARSE | (_BACKUP if directory else 0), None)
+    descriptor = wintypes.LPVOID()
+    security = None
+    if disposition == _CREATE_NEW:
+        # Protect the DACL against inherited workspace permissions. OW is the
+        # Windows OWNER RIGHTS SID, so only the file owner has an allow ACE.
+        if not _adv.ConvertStringSecurityDescriptorToSecurityDescriptorW(
+                "D:P(A;;FA;;;OW)", 1, ctypes.byref(descriptor), None):
+            _fail()
+        security = _SecurityAttributes(ctypes.sizeof(_SecurityAttributes), descriptor, False)
+    try:
+        handle = _k.CreateFileW(str(path), access, _SHARE_READ,
+                                ctypes.byref(security) if security is not None else None,
+                                disposition, _OPEN_REPARSE | (_BACKUP if directory else 0), None)
+    finally:
+        if descriptor.value:
+            _k.LocalFree(descriptor)
     if handle == _INVALID:
         raise OSError(ctypes.get_last_error(), "secure file open failed")
     attrs = _Attributes()

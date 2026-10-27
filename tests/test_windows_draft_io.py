@@ -51,6 +51,35 @@ def test_never_overwrites_and_refuses_bad_checksum(tmp_path):
     assert not (tmp_path / 'draft_2.revision-1.yaml').exists()
 
 
+def test_artifact_dacl_does_not_inherit_workspace_permissions(tmp_path):
+    import ctypes
+    from ctypes import wintypes
+    target = publish(Workspace(tmp_path))
+    adv = ctypes.WinDLL('advapi32', use_last_error=True)
+    kernel = ctypes.WinDLL('kernel32', use_last_error=True)
+    adv.GetNamedSecurityInfoW.argtypes = [wintypes.LPWSTR, wintypes.DWORD, wintypes.DWORD,
+        wintypes.LPVOID, wintypes.LPVOID, wintypes.LPVOID, wintypes.LPVOID,
+        ctypes.POINTER(wintypes.LPVOID)]
+    adv.GetNamedSecurityInfoW.restype = wintypes.DWORD
+    adv.ConvertSecurityDescriptorToStringSecurityDescriptorW.argtypes = [
+        wintypes.LPVOID, wintypes.DWORD, wintypes.DWORD,
+        ctypes.POINTER(wintypes.LPWSTR), wintypes.LPVOID]
+    adv.ConvertSecurityDescriptorToStringSecurityDescriptorW.restype = wintypes.BOOL
+    kernel.LocalFree.argtypes = [wintypes.LPVOID]
+    descriptor, sddl = wintypes.LPVOID(), wintypes.LPWSTR()
+    assert adv.GetNamedSecurityInfoW(str(target), 1, 4, None, None, None, None,
+                                     ctypes.byref(descriptor)) == 0
+    try:
+        assert adv.ConvertSecurityDescriptorToStringSecurityDescriptorW(
+            descriptor, 1, 4, ctypes.byref(sddl), None)
+        assert sddl.value.startswith('D:P')
+        assert sddl.value.count('(A;') == 1 and ';;;OW)' in sddl.value
+    finally:
+        if sddl:
+            kernel.LocalFree(sddl)
+        kernel.LocalFree(descriptor)
+
+
 @pytest.mark.parametrize('name', ['../secret', '.netconverter/session.json', 'file:stream', ''])
 def test_path_escape_and_streams_refused(tmp_path, name):
     with pytest.raises(WorkspaceError):
