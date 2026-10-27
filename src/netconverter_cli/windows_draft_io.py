@@ -1,7 +1,7 @@
 """Windows guided file IO using held handles and no-replace publication.
 
-Only local NTFS volumes are supported. Directory handles deny write/delete
-sharing for the lifetime of each operation; reparse points are refused. This
+Only local NTFS volumes are supported. Directory handles deny delete sharing
+for the lifetime of each operation; reparse points are refused. This
 module is imported only on Windows and never handles model-selected URLs.
 """
 from __future__ import annotations
@@ -63,7 +63,7 @@ _adv.ConvertSidToStringSidW.restype = wintypes.BOOL
 
 _INVALID = ctypes.c_void_p(-1).value
 _READ, _WRITE, _DELETE = 0x80000000, 0x40000000, 0x00010000
-_SHARE_READ = 1
+_SHARE_READ, _SHARE_WRITE = 1, 2
 _OPEN_EXISTING, _CREATE_NEW = 3, 1
 _OPEN_REPARSE, _BACKUP = 0x00200000, 0x02000000
 _REPARSE, _DIRECTORY = 0x400, 0x10
@@ -117,7 +117,10 @@ def _open(path: Path, access: int, disposition: int, directory: bool) -> int:
             _fail()
         security = _SecurityAttributes(ctypes.sizeof(_SecurityAttributes), descriptor, False)
     try:
-        handle = _k.CreateFileW(str(path), access, _SHARE_READ,
+        # Parent directories must permit child creation/rename while denying
+        # delete sharing, which pins the directory's own name against swaps.
+        share = _SHARE_READ | (_SHARE_WRITE if directory else 0)
+        handle = _k.CreateFileW(str(path), access, share,
                                 ctypes.byref(security) if security is not None else None,
                                 disposition, _OPEN_REPARSE | (_BACKUP if directory else 0), None)
     finally:
