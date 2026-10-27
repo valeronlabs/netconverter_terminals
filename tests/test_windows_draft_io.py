@@ -122,6 +122,16 @@ def test_client_state_short_name_alias_is_not_read(tmp_path):
         secure_snapshot(Workspace(tmp_path), str(Path(alias) / 'secret.cfg'))
 
 
+def test_client_state_hard_link_is_not_read(tmp_path):
+    state = tmp_path / '.netconverter'
+    state.mkdir()
+    secret = state / 'session.json'
+    secret.write_text('synthetic secret')
+    os.link(secret, tmp_path / 'alias.cfg')
+    with pytest.raises(WorkspaceError):
+        secure_snapshot(Workspace(tmp_path), 'alias.cfg')
+
+
 def test_reparse_point_refused(tmp_path):
     outside = tmp_path.parent / ('outside-' + tmp_path.name)
     outside.mkdir()
