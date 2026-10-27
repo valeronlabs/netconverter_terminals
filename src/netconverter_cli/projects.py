@@ -60,6 +60,11 @@ def run(service, action, args):
         raise DraftError("invalid_response")
     # The frozen project snapshot has its own digest, separate from evidence.
     snapshot = result["snapshot"]
+    if action != "get_project":
+        references = [{key: d[key] for key in ("device_id", "draft_id", "revision")}
+                      for d in snapshot["devices"]]
+        if references != body["devices"] or snapshot["links"] != body["links"]:
+            raise DraftError("invalid_response")
     digest = hashlib.sha256(json.dumps(snapshot, sort_keys=True, separators=(",", ":"), ensure_ascii=False,
                                        allow_nan=False).encode()).hexdigest()
     evidence = result["cross_device_evidence"]

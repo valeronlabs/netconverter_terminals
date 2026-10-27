@@ -195,3 +195,18 @@ def test_project_cli_uses_same_contract_without_ai(tmp_path, monkeypatch, capsys
     out = capsys.readouterr().out
     assert json.loads(out)['error']['code'] == 'invalid_arguments'
     assert CANARY not in out and len(seen) == 5
+
+
+@pytest.mark.parametrize('action', ['prepare_project', 'propose_project'])
+@pytest.mark.parametrize('changed', ['devices', 'links'])
+def test_mutation_response_must_bind_submitted_choices_even_with_valid_hash(tmp_path, action, changed):
+    data = response(1 if action == 'prepare_project' else 2)
+    if changed == 'devices':
+        data['snapshot']['devices'][0]['draft_id'] = 'draft_' + 'f' * 32
+    else:
+        data['snapshot']['links'][0]['expectations']['same_subnet'] = False
+    digest = hashlib.sha256(json.dumps(data['snapshot'], sort_keys=True, separators=(',', ':')).encode()).hexdigest()
+    data['content_sha256'] = data['cross_device_evidence']['project_content_sha256'] = digest
+    svc, _ = service(tmp_path, lambda req: success(data))
+    args = arguments() if action == 'prepare_project' else arguments(project_id=PROJECT, expected_revision=1)
+    assert svc.call(action, args)['error']['code'] == 'invalid_response'
