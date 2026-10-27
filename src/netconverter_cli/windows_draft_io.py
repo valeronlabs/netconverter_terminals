@@ -162,8 +162,11 @@ def snapshot(workspace, filename: str, max_bytes: int):
 def _rename(handle: int, directory: int, filename: str) -> None:
     class Rename(ctypes.Structure):
         _fields_ = [("replace", wintypes.BOOL), ("root", wintypes.HANDLE),
-                    ("length", wintypes.DWORD), ("name", wintypes.WCHAR * len(filename))]
-    value = Rename(False, directory, len(filename.encode("utf-16-le")), filename)
+                    ("length", wintypes.DWORD), ("name", wintypes.WCHAR * (len(filename) + 1))]
+    # SetFileInformationByHandle rejects a non-null RootDirectory on some
+    # Windows versions. The absolute destination remains confined by the
+    # held, no-delete-sharing handles for every ancestor.
+    value = Rename(False, None, len(filename.encode("utf-16-le")), filename)
     if not _k.SetFileInformationByHandle(handle, 3, ctypes.byref(value), ctypes.sizeof(value)):
         raise OSError(ctypes.get_last_error(), "secure rename failed")
 
@@ -202,7 +205,7 @@ def publish(workspace, filename: str, content: bytes, sha256: str) -> Path:
             os.fsync(fd)
         finally:
             os.close(fd)
-        _rename(handle, handles[-1], filename)
+        _rename(handle, handles[-1], str(destination))
         published = True
         # The data was validated before writing and the write handle has never
         # allowed a concurrent writer. A no-replace rename pins those bytes.
