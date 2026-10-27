@@ -27,6 +27,8 @@ _k.GetFileType.argtypes = [wintypes.HANDLE]
 _k.GetFileType.restype = wintypes.DWORD
 _k.GetFileInformationByHandleEx.argtypes = [wintypes.HANDLE, ctypes.c_int, wintypes.LPVOID, wintypes.DWORD]
 _k.GetFileInformationByHandleEx.restype = wintypes.BOOL
+_k.GetFinalPathNameByHandleW.argtypes = [wintypes.HANDLE, wintypes.LPWSTR, wintypes.DWORD, wintypes.DWORD]
+_k.GetFinalPathNameByHandleW.restype = wintypes.DWORD
 _k.SetFileInformationByHandle.argtypes = [wintypes.HANDLE, ctypes.c_int, wintypes.LPVOID, wintypes.DWORD]
 _k.SetFileInformationByHandle.restype = wintypes.BOOL
 _k.GetDriveTypeW.argtypes = [wintypes.LPCWSTR]
@@ -188,6 +190,17 @@ def _read(handle: int, limit: int) -> bytes:
         os.close(fd)
 
 
+def _final_path(handle: int) -> Path:
+    length = _k.GetFinalPathNameByHandleW(handle, None, 0, 0)
+    if not 0 < length <= 32768:
+        _fail()
+    buffer = ctypes.create_unicode_buffer(length + 1)
+    written = _k.GetFinalPathNameByHandleW(handle, buffer, len(buffer), 0)
+    if not 0 < written < len(buffer):
+        _fail()
+    return Path(buffer.value)
+
+
 def _protected_owner_acl(handle: int) -> bool:
     """Verify the held file's owner and exact protected DACL before reuse."""
     owner, descriptor, sddl = wintypes.LPVOID(), wintypes.LPVOID(), wintypes.LPWSTR()
@@ -246,6 +259,12 @@ def snapshot(workspace, filename: str, max_bytes: int):
     try:
         handles = _directories(candidate.parent)
         handle = _open(candidate, _READ, _OPEN_EXISTING, False)
+        # Resolve 8.3 names through held handles before reading anything. A
+        # lexical comparison alone lets NETCON~1 alias the client state folder.
+        root_handle = handles[len(workspace.root.parts) - 1]
+        state = _final_path(root_handle) / '.netconverter'
+        if _final_path(handle).is_relative_to(state):
+            _fail()
         data = _read(handle, max_bytes)
         if b"\x00" in data:
             _fail()

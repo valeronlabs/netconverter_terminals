@@ -103,6 +103,25 @@ def test_existing_alternate_stream_is_refused(tmp_path):
         secure_snapshot(Workspace(tmp_path), 'file:stream')
 
 
+def test_client_state_short_name_alias_is_not_read(tmp_path):
+    import ctypes
+    from ctypes import wintypes
+    state = tmp_path / '.netconverter'
+    state.mkdir()
+    (state / 'secret.cfg').write_text('synthetic')
+    kernel = ctypes.WinDLL('kernel32', use_last_error=True)
+    kernel.GetShortPathNameW.argtypes = [wintypes.LPCWSTR, wintypes.LPWSTR, wintypes.DWORD]
+    kernel.GetShortPathNameW.restype = wintypes.DWORD
+    buf = ctypes.create_unicode_buffer(32768)
+    if not kernel.GetShortPathNameW(str(state), buf, len(buf)):
+        pytest.skip('short names are not available on this volume')
+    alias = Path(buf.value).name
+    if alias.casefold() == state.name.casefold():
+        pytest.skip('8.3 short names are disabled for this directory')
+    with pytest.raises(WorkspaceError):
+        secure_snapshot(Workspace(tmp_path), str(Path(alias) / 'secret.cfg'))
+
+
 def test_reparse_point_refused(tmp_path):
     outside = tmp_path.parent / ('outside-' + tmp_path.name)
     outside.mkdir()
