@@ -81,7 +81,7 @@ def test_artifact_dacl_does_not_inherit_workspace_permissions(tmp_path):
     try:
         assert adv.ConvertSecurityDescriptorToStringSecurityDescriptorW(
             descriptor, 1, 4, ctypes.byref(sddl), None)
-        assert sddl.value.startswith('D:P')
+        assert sddl.value == 'D:P(A;;FA;;;OW)'
         assert sddl.value.count('(A;') == 1 and ';;;OW)' in sddl.value
     finally:
         if sddl:
