@@ -16,7 +16,15 @@ def publish(workspace, data=b'synthetic: true\n'):
     return secure_publish(workspace, 'draft_1', 1, data, hashlib.sha256(data).hexdigest())
 
 
-def test_snapshot_nested_and_absolute_and_publish_retry(tmp_path):
+def test_snapshot_nested_and_absolute_and_publish_retry(tmp_path, monkeypatch):
+    from netconverter_cli import windows_draft_io as windows
+    original_rename = windows._rename
+    def diagnostic_rename(*args):
+        try:
+            return original_rename(*args)
+        except OSError as exc:
+            pytest.fail(f'Native rename failed with Windows error {exc.errno}')
+    monkeypatch.setattr(windows, '_rename', diagnostic_rename)
     workspace = Workspace(tmp_path)
     folder = tmp_path / 'nested'
     folder.mkdir()
