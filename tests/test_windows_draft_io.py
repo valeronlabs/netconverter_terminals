@@ -112,3 +112,53 @@ def test_no_replace_when_destination_appears(tmp_path, monkeypatch):
         publish(workspace)
     assert target.read_bytes() == b'concurrent'
     assert not list(tmp_path.glob('.nc-draft-*'))
+
+
+def test_source_handle_denies_concurrent_replacement_and_write(tmp_path, monkeypatch):
+    from netconverter_cli import windows_draft_io as windows
+    source = tmp_path / 'source.cfg'
+    source.write_bytes(b'original')
+    original = windows._read
+    def racing_read(handle, limit):
+        with pytest.raises(PermissionError):
+            source.write_bytes(b'changed')
+        with pytest.raises(PermissionError):
+            source.rename(tmp_path / 'moved.cfg')
+        return original(handle, limit)
+    monkeypatch.setattr(windows, '_read', racing_read)
+    assert secure_snapshot(Workspace(tmp_path), 'source.cfg')[1] == b'original'
+
+
+def test_held_workspace_cannot_be_renamed_during_publication(tmp_path, monkeypatch):
+    from netconverter_cli import windows_draft_io as windows
+    root = tmp_path / 'workspace'
+    root.mkdir()
+    workspace = Workspace(root)
+    original = windows._rename
+    def racing_rename(handle, directory, filename):
+        with pytest.raises(PermissionError):
+            root.rename(tmp_path / 'moved')
+        return original(handle, directory, filename)
+    monkeypatch.setattr(windows, '_rename', racing_rename)
+    assert publish(workspace).read_bytes() == b'synthetic: true\n'
+    assert not (tmp_path / 'moved').exists()
+
+
+def test_failed_rename_removes_temporary_file(tmp_path, monkeypatch):
+    from netconverter_cli import windows_draft_io as windows
+    def fail_rename(*args):
+        raise OSError(5, 'synthetic failure')
+    monkeypatch.setattr(windows, '_rename', fail_rename)
+    with pytest.raises(WorkspaceError):
+        publish(Workspace(tmp_path))
+    assert not list(tmp_path.glob('.nc-draft-*'))
+    assert not (tmp_path / 'draft_1.revision-1.yaml').exists()
+
+
+def test_unicode_workspace_and_input(tmp_path):
+    root = tmp_path / '工程'
+    root.mkdir()
+    (root / '配置.cfg').write_bytes(b'hostname synthetic\n')
+    workspace = Workspace(root)
+    assert secure_snapshot(workspace, '配置.cfg')[1] == b'hostname synthetic\n'
+    assert publish(workspace).read_bytes() == b'synthetic: true\n'
