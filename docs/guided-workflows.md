@@ -219,16 +219,18 @@ be copied from source names. Other resource IDs are server-minted, not source te
 Names, comments, descriptions, source lines, arbitrary labels, YAML and credentials
 do not belong in projected fields. These rules require server qualification too.
 
-New file access uses POSIX no-follow directory descriptors and bounded regular-file
-reads (source up to 50,000 bytes; decision YAML up to 1,000,000 bytes).
+New file access uses POSIX no-follow directory descriptors or, in the Windows
+candidate, held Windows handles on local NTFS volumes, rejecting reparse points.
+Reads are bounded (source up to 50,000 bytes; decision YAML up to 1,000,000 bytes).
 Source replacement/change is refused; exports verify revision/digest and use
 atomic no-clobber publication. Generated artifacts also bind the job and manifest,
 check size before accumulation, refuse compressed responses and verify the final
 checksum. Any guided endpoint's 401 body is closed without reading before at most
 one credential refresh; retries preserve the request body and idempotency key.
-Existing edited files are preserved. These new file
-operations **fail closed on Windows** until an equivalent Windows implementation is
-qualified; ordinary client file behavior is unchanged.
+Existing edited files are preserved. The Windows candidate uses a protected
+owner-rights DACL for newly published files and refuses unsupported volumes.
+Windows security review and client qualification remain pending; ordinary client
+file behavior is unchanged.
 
 ## Explicit remaining work
 

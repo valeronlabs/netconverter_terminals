@@ -107,6 +107,25 @@ def test_reparse_point_refused(tmp_path):
         secure_snapshot(Workspace(tmp_path), 'linked/secret.cfg')
 
 
+def test_junction_and_destination_symlink_refused(tmp_path):
+    import subprocess
+    outside = tmp_path.parent / ('junction-outside-' + tmp_path.name)
+    outside.mkdir()
+    secret = outside / 'secret.cfg'
+    secret.write_bytes(b'outside')
+    junction = tmp_path / 'junction'
+    made = subprocess.run(['cmd', '/c', 'mklink', '/J', str(junction), str(outside)],
+                          capture_output=True, check=False)
+    assert made.returncode == 0, 'Windows junction setup failed'
+    with pytest.raises(WorkspaceError):
+        secure_snapshot(Workspace(tmp_path), 'junction/secret.cfg')
+    target = tmp_path / 'draft_1.revision-1.yaml'
+    os.symlink(secret, target)
+    with pytest.raises(WorkspaceError):
+        publish(Workspace(tmp_path))
+    assert secret.read_bytes() == b'outside'
+
+
 def test_no_replace_when_destination_appears(tmp_path, monkeypatch):
     from netconverter_cli import windows_draft_io as windows
     workspace = Workspace(tmp_path)
