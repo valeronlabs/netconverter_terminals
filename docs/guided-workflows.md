@@ -229,6 +229,10 @@ checksum. Any guided endpoint's 401 body is closed without reading before at mos
 one credential refresh; retries preserve the request body and idempotency key.
 Existing edited files are preserved. The Windows candidate uses a protected
 owner-rights DACL for newly published files and refuses unsupported volumes.
+Use a workspace that is writable only by trusted users. Windows guided transfers
+reject files with multiple hard links and check again after a snapshot read, but
+cannot establish a file's history or detect every transient link change. These
+checks do not protect a workspace controlled by a malicious local user.
 Windows security review and client qualification remain pending; ordinary client
 file behavior is unchanged.
 
