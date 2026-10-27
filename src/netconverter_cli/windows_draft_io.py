@@ -41,6 +41,21 @@ _adv = ctypes.WinDLL("advapi32", use_last_error=True)
 _adv.ConvertStringSecurityDescriptorToSecurityDescriptorW.argtypes = [
     wintypes.LPCWSTR, wintypes.DWORD, ctypes.POINTER(wintypes.LPVOID), wintypes.LPVOID]
 _adv.ConvertStringSecurityDescriptorToSecurityDescriptorW.restype = wintypes.BOOL
+_adv.GetSecurityInfo.argtypes = [wintypes.HANDLE, wintypes.DWORD, wintypes.DWORD,
+    ctypes.POINTER(wintypes.LPVOID), wintypes.LPVOID, wintypes.LPVOID,
+    wintypes.LPVOID, ctypes.POINTER(wintypes.LPVOID)]
+_adv.GetSecurityInfo.restype = wintypes.DWORD
+_adv.ConvertSecurityDescriptorToStringSecurityDescriptorW.argtypes = [
+    wintypes.LPVOID, wintypes.DWORD, wintypes.DWORD,
+    ctypes.POINTER(wintypes.LPWSTR), wintypes.LPVOID]
+_adv.ConvertSecurityDescriptorToStringSecurityDescriptorW.restype = wintypes.BOOL
+_adv.OpenProcessToken.argtypes = [wintypes.HANDLE, wintypes.DWORD, ctypes.POINTER(wintypes.HANDLE)]
+_adv.OpenProcessToken.restype = wintypes.BOOL
+_adv.GetTokenInformation.argtypes = [wintypes.HANDLE, ctypes.c_int, wintypes.LPVOID,
+    wintypes.DWORD, ctypes.POINTER(wintypes.DWORD)]
+_adv.GetTokenInformation.restype = wintypes.BOOL
+_adv.EqualSid.argtypes = [wintypes.LPVOID, wintypes.LPVOID]
+_adv.EqualSid.restype = wintypes.BOOL
 
 _INVALID = ctypes.c_void_p(-1).value
 _READ, _WRITE, _DELETE = 0x80000000, 0x40000000, 0x00010000
@@ -147,6 +162,40 @@ def _read(handle: int, limit: int) -> bytes:
         os.close(fd)
 
 
+def _protected_owner_acl(handle: int) -> bool:
+    """Verify the held file's owner and exact protected DACL before reuse."""
+    owner, descriptor, sddl = wintypes.LPVOID(), wintypes.LPVOID(), wintypes.LPWSTR()
+    token = wintypes.HANDLE()
+    try:
+        # SE_FILE_OBJECT, OWNER_SECURITY_INFORMATION | DACL_SECURITY_INFORMATION.
+        if _adv.GetSecurityInfo(handle, 1, 5, ctypes.byref(owner), None, None, None,
+                                ctypes.byref(descriptor)) != 0 or not owner.value:
+            return False
+        if not _adv.ConvertSecurityDescriptorToStringSecurityDescriptorW(
+                descriptor, 1, 4, ctypes.byref(sddl), None):
+            return False
+        if sddl.value != 'D:P(A;;FA;;;OW)':
+            return False
+        if not _adv.OpenProcessToken(_k.GetCurrentProcess(), 8, ctypes.byref(token)):
+            return False
+        size = wintypes.DWORD()
+        _adv.GetTokenInformation(token, 1, None, 0, ctypes.byref(size))
+        if not size.value:
+            return False
+        info = ctypes.create_string_buffer(size.value)
+        if not _adv.GetTokenInformation(token, 1, info, size.value, ctypes.byref(size)):
+            return False
+        user_sid = ctypes.cast(info, ctypes.POINTER(wintypes.LPVOID)).contents
+        return bool(_adv.EqualSid(owner, user_sid))
+    finally:
+        if token.value:
+            _k.CloseHandle(token)
+        if sddl:
+            _k.LocalFree(sddl)
+        if descriptor.value:
+            _k.LocalFree(descriptor)
+
+
 _k.GetCurrentProcess.restype = wintypes.HANDLE
 _k.DuplicateHandle.argtypes = [wintypes.HANDLE, wintypes.HANDLE, wintypes.HANDLE,
                                ctypes.POINTER(wintypes.HANDLE), wintypes.DWORD, wintypes.BOOL, wintypes.DWORD]
@@ -211,7 +260,7 @@ def publish(workspace, filename: str, content: bytes, sha256: str) -> Path:
                 raise
         else:
             try:
-                if _read(existing, len(content)) != content:
+                if not _protected_owner_acl(existing) or _read(existing, len(content)) != content:
                     _fail()
                 return destination
             finally:

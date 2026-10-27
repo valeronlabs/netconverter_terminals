@@ -51,6 +51,15 @@ def test_never_overwrites_and_refuses_bad_checksum(tmp_path):
     assert not (tmp_path / 'draft_2.revision-1.yaml').exists()
 
 
+def test_matching_existing_file_with_inherited_acl_is_not_reused(tmp_path):
+    workspace = Workspace(tmp_path)
+    target = tmp_path / 'draft_1.revision-1.yaml'
+    target.write_bytes(b'synthetic: true\n')
+    with pytest.raises(WorkspaceError):
+        publish(workspace)
+    assert target.read_bytes() == b'synthetic: true\n'
+
+
 def test_artifact_dacl_does_not_inherit_workspace_permissions(tmp_path):
     import ctypes
     from ctypes import wintypes
