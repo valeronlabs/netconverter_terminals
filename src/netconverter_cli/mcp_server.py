@@ -27,7 +27,7 @@ from .backend import EXTERNAL_MAX_BYTES, detect_profile, download_external, subm
 from .clerk import ClerkError
 from .controller import fetch_artifacts
 from .credentials import keyring_problem
-from . import job_options, mcp_workflows
+from . import errors, job_options, mcp_workflows
 from .drafts import DraftClient, DraftService
 from .privacy import STATUSES
 from .remote_mcp import RemoteError, RemoteMCP
@@ -285,6 +285,9 @@ def _api_failure(exc: APIError) -> ToolFailure:
             "store an API key with `netconverter login`.",
             **extra,
         )
+    if exc.status == 403:  # what the credential lacks, not a bare "forbidden" (#9)
+        return ToolFailure(re.sub(r"[^a-z0-9_]", "", exc.code.lower())[:60] or "forbidden",
+                           errors.entitlement(exc), **extra)
     reason = f": {exc.message}" if exc.message else ""
     return ToolFailure(re.sub(r"[^a-z0-9_]", "", exc.code.lower())[:60] or "request_failed",
                        f"NetConverter refused the request ({exc.code}, HTTP {exc.status}){reason}", **extra)
@@ -302,10 +305,23 @@ def _no_credential() -> ToolFailure:
             "env_vars; Cursor and OpenClaw: env), or set NETCONVERTER_API_KEY there; then restart "
             "the client. New user? Run `netconverter login --clerk` in a terminal first.",
         )
+    # The bridge looks for a credential again on the next call, so no restart is needed (#21).
+    return ToolFailure("not_signed_in", errors.SIGNED_OUT)
+
+
+MAX_OPTIONS_CHARS = 16_000
+
+
+def _options_too_large(options) -> ToolFailure:
+    """#21: a decisions file is legitimate, so say where it fits instead of "not configuration text"."""
+    size = len(json.dumps(options, default=str))
     return ToolFailure(
-        "not_signed_in",
-        "No NetConverter credential. Sign in with `netconverter login --clerk` (or store an API "
-        "key with `netconverter login`) in a terminal, then restart this MCP server and retry.",
+        "invalid_arguments",
+        f"options are {size:,} characters of JSON; the bridge accepts up to {MAX_OPTIONS_CHARS:,} so that "
+        "file content cannot travel through the AI conversation. Job settings fit easily. A YAML v2 "
+        "decisions file (yaml_v2) never goes through the bridge; it goes in from a terminal: `netconverter convert "
+        "FILE --vendor CODE --to CODE --options '{\"yaml_v2\": \"<YAML text>\"}'` (docs/COMMANDS.md).",
+        options_chars=size, limit_chars=MAX_OPTIONS_CHARS,
     )
 
 
@@ -314,8 +330,11 @@ class Bridge:
 
     def __init__(self, workspace, server: str, rest_credential=None, remote: RemoteMCP | None = None,
                  *, transport=None, strict: bool = False, credential_source: str | None = None,
-                 guided: bool = False, draft_service=None):
+                 guided: bool = False, draft_service=None, credential_loader=None):
         self.workspace = Workspace(workspace)
+        # Called again while there is no credential, so a sign-in made after the
+        # bridge started is used on the next call (#21). Returns choose_mcp_credential's tuple.
+        self._credential_loader = credential_loader
         # Which credential this process runs on (#16): clerk_session, api_key_environment,
         # api_key_stored or none; the same one serves REST and the remote tools.
         self.credential_source = credential_source
@@ -337,7 +356,18 @@ class Bridge:
 
     # -- REST clients ------------------------------------------------------
 
+    def _reload_credential(self) -> None:
+        if self.rest_credential is not None or self._credential_loader is None:
+            return
+        try:
+            rest, _remote, source, _notes = self._credential_loader()
+        except Exception:  # noqa: BLE001 - still no credential; _no_credential says why
+            return
+        if rest is not None:
+            self.rest_credential, self.credential_source, self._profile = rest, source, None
+
     def _client(self, cls):
+        self._reload_credential()
         if self.rest_credential is None:
             raise _no_credential()
         return cls(self.rest_credential, self.server, transport=self._transport)
@@ -346,6 +376,7 @@ class Bridge:
         """('external', job types) for full API credentials, ('quick', ...) for terminal keys."""
         if self._profile:
             return self._profile
+        self._reload_credential()
         if self.rest_credential is None:
             self._client(ExternalClient)  # raises not_signed_in
         try:
@@ -374,12 +405,12 @@ class Bridge:
         if target_vendor is not None and (not isinstance(target_vendor, str) or not _VENDOR.fullmatch(target_vendor)):
             raise ToolFailure("invalid_arguments", "target_vendor must be a vendor code such as palo_alto_set")
         options = options or {}
+        if len(json.dumps(options, default=str)) > MAX_OPTIONS_CHARS:  # size first: it says where big files go
+            raise _options_too_large(options)
         try:  # an allowlist with type checks (#11), before any network call
             job_options.check(options, job_type, target_vendor, profile=None, allow_document=False)
         except job_options.OptionsError as exc:
             raise ToolFailure("invalid_arguments", str(exc)) from None
-        if len(json.dumps(options, default=str)) > 16_000:
-            raise ToolFailure("invalid_arguments", "options are too large; pass settings, not configuration text")
         try:  # confinement first: a refused path never causes network traffic
             if not self.workspace.locate(path).is_file():
                 raise WorkspaceError("Select a regular configuration file")
@@ -524,10 +555,26 @@ class Bridge:
         self._log("wait_for_job", job_id=job_id, status=out.get("verdict") or out["status"])
         return out
 
+    def _signed_out_account(self, failure: ToolFailure) -> dict:
+        """#21: without a credential, account is a status (version, update state), not an error."""
+        state = update.status()
+        status = "signed_out" if failure.code == "not_signed_in" else failure.code
+        return {"status": status, "signed_in": False, "message": str(failure),
+                "client_version": __version__, "update_available": state["update_available"],
+                "latest_version": state["latest"], "strict_mode": self.strict,
+                "credential_source": self.credential_source or "none"}
+
     def account(self):
         if self.guided:
             return self._guided_request("capabilities", {})
-        kind, job_types = self.profile()
+        try:
+            kind, job_types = self.profile()
+        except ToolFailure as exc:
+            if exc.code in {"not_signed_in", "keyring_unreachable"}:
+                return self._signed_out_account(exc)
+            raise
+        except ClerkError:
+            return self._signed_out_account(ToolFailure("not_signed_in", errors.SIGNED_OUT))
         out = {"profile": "terminal_quick" if kind == "quick" else "full_api",
                "job_types": sorted(job_types), "rate_limit_per_min": None, "daily_quota": None,
                "auth_kind": "api_key" if kind == "quick" else "unknown"}

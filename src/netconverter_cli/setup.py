@@ -7,6 +7,7 @@ from .backend import open_client
 from .credentials import get_secret, load_secret, save_secret
 from .providers import Provider, ProviderError
 from .workspace import Workspace, WorkspaceError
+from .errors import EXIT_AUTH, SIGNED_OUT, CommandError
 
 
 def account(server):
@@ -105,7 +106,7 @@ def connect_credential(server, signin, ask, secret):
     key = secret('NetConverter API key (hidden; paste here, then Enter; blank uses saved key): ').strip()
     key = key or saved
     if not key:
-        raise ValueError('A server API key is required')
+        raise CommandError(SIGNED_OUT, EXIT_AUTH)
     return key
 
 

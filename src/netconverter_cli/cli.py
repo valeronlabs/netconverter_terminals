@@ -1,20 +1,27 @@
 """Independent terminal executable; importing it never imports appliance code."""
 
 import argparse
+import difflib
 import getpass
 import json
 import os
+import re
 import sys
 from pathlib import Path
 from .api import Client, DEFAULT_BASE, APIError
 from .backend import detect_profile, open_client
-from .credentials import get_secret, keyring_available, keyring_problem, load_secret, save_secret
+from .credentials import (KeyringLocked, get_secret, keyring_available, keyring_problem, load_secret,
+                          save_secret)
 from .controller import Controller
 from .providers import Provider, ProviderError
 from .commands import execute
 from .job_options import OptionsError
 from .setup import configure, load_settings, account
 from .remote_mcp import DEFAULT_MCP_URL
+from .clerk import ClerkError
+from .errors import (CANCELLED, EXIT_AUTH, EXIT_CANCELLED, EXIT_FAILURE, EXIT_INPUT, EXIT_USAGE,
+                     KEYRING_LOCKED, OPTIONS_EXAMPLE, SIGNED_OUT, CommandError, api_error_message, api_exit_code)
+from .workspace import Workspace, WorkspaceError
 
 
 # A Clerk token is the user's NetConverter identity. It is only ever sent to
@@ -87,16 +94,17 @@ def rest_credential(server, settings, *, interactive=True):
     mode = os.getenv("NETCONVERTER_AUTH", "auto")
     if mode == "clerk":
         if not clerk_allowed(server):
-            raise SystemExit(f"Refusing to send your NetConverter sign-in to {server}: not a trusted "
-                             "NetConverter host (set NETCONVERTER_TRUSTED_HOSTS to trust it explicitly)")
+            raise CommandError(f"Refusing to send your NetConverter sign-in to {server}: not a trusted "
+                               "NetConverter host (set NETCONVERTER_TRUSTED_HOSTS to trust it explicitly)",
+                               EXIT_USAGE)
         session = _clerk_session()
         if session is None:
-            raise SystemExit("Not signed in; run `netconverter login --clerk`")
+            raise CommandError(SIGNED_OUT, EXIT_AUTH)
         return session
     if mode == "key":
-        key = get_secret(account(server)) if interactive else get_secret(account(server), prompt=False)
+        key = get_secret(account(server), prompt=interactive, label=_host(server))
         if not key:
-            raise SystemExit("No NetConverter API key; run `netconverter login` first.")
+            raise CommandError(SIGNED_OUT, EXIT_AUTH)
         return key
     key = get_secret(account(server), prompt=False)
     if key:
@@ -106,9 +114,20 @@ def rest_credential(server, settings, *, interactive=True):
         if session is not None:
             return session
     if not keyring_available() and interactive:
-        return get_secret(account(server))  # no credential store: a memory-only key prompt
-    raise SystemExit(f"No NetConverter credential for {server}. Run `netconverter login --clerk` to "
-                     "sign in with your account, or `netconverter login` to store an API key.")
+        # no credential store: a memory-only key prompt
+        key = get_secret(account(server), label=_host(server))
+        if key:
+            return key
+    raise CommandError(SIGNED_OUT, EXIT_AUTH)
+
+
+def _host(server: str) -> str:
+    from urllib.parse import urlsplit
+
+    try:
+        return urlsplit(server).hostname or server
+    except ValueError:
+        return server
 
 
 def clerk_login(args, settings):
@@ -127,7 +146,7 @@ def clerk_login(args, settings):
                   "registered redirect URI for this OAuth application.", file=sys.stderr)
         raise SystemExit(1) from None
     print(json.dumps({"signed_in": True, "method": "clerk", **profile,
-                      "credential_storage": "OS credential store"}))
+                      "credential_storage": "OS credential store"}, ensure_ascii=False))
 
 
 def logout(args):
@@ -153,7 +172,7 @@ def whoami(args):
             out["clerk"] = {"signed_in": True, **profile_summary(session.userinfo())}
         except ClerkError as exc:
             out["clerk"] = {"signed_in": False, "message": str(exc)}
-    print(json.dumps(out, indent=2))
+    print(json.dumps(out, indent=2, ensure_ascii=False))
 
 
 MCP_AUTH_MODES = ("auto", "clerk", "key")
@@ -176,6 +195,14 @@ def mcp_auth_default() -> str:
 
 
 def choose_mcp_credential(auth: str, server: str, mcp_url: str):
+    """A locked keyring starts the bridge without a credential and says why (#10)."""
+    try:
+        return _choose_mcp_credential(auth, server, mcp_url)
+    except KeyringLocked:
+        return None, None, "none", [f"credential: none; {KEYRING_LOCKED}"]
+
+
+def _choose_mcp_credential(auth: str, server: str, mcp_url: str):
     """One principal for the whole bridge process (#16).
 
     Returns (rest_credential, remote_credential, source, notes). REST and the
@@ -244,6 +271,8 @@ def run_mcp(args):
                            **({"view_mode": "strict"} if strict else {}))
     try:
         options = {"guided": True} if guided else {}
+        if rest is None:  # a sign-in made after start is used on the next call, no restart (#21)
+            options["credential_loader"] = lambda: choose_mcp_credential(args.auth, args.server, mcp_url)
         run_stdio(Bridge(args.workspace, args.server, rest, remote, strict=strict,
                          credential_source=source, **options))
     finally:
@@ -257,13 +286,46 @@ def check_source_vendor(vendor: str, catalog) -> None:
     There is no ``auto``: detection exists only in the guided flow. A catalogue
     without a vendor list (an older server) cannot judge, so the server decides.
     """
+    sources = sorted(code for code, v in catalog.vendors.items() if "source" in (v.get("roles") or ["source"]))
+    if not vendor:  # #8: name the codes instead of argparse's bare "required"
+        raise CommandError(VENDOR_REQUIRED + (f" Valid --vendor codes: {', '.join(sources)}." if sources else
+                                              " `netconverter capabilities` lists the codes."), EXIT_USAGE)
     if not catalog.loaded or vendor in catalog.vendors:
         return
-    sources = sorted(code for code, v in catalog.vendors.items() if "source" in (v.get("roles") or ["source"]))
-    print(f"netconverter: unknown source vendor {vendor!r} (there is no 'auto'). "
-          f"Valid --vendor codes: {', '.join(sources) or 'none listed'}; "
-          "`netconverter capabilities` shows names and conversion paths.")
-    raise SystemExit(1)
+    raise CommandError(f"netconverter: unknown source vendor {vendor!r} (there is no 'auto'). "
+                       f"Valid --vendor codes: {', '.join(sources) or 'none listed'}; "
+                       "`netconverter capabilities` shows names and conversion paths.", EXIT_USAGE)
+
+
+SUBMIT_COMMANDS = ("validate", "analyze", "optimize", "convert")
+VENDOR_REQUIRED = "--vendor is required: the source vendor code of the file."
+
+
+def check_submission(args) -> dict:
+    """Local checks for a one-shot submit, before any sign-in or network call (#9).
+
+    Returns the parsed --options. The size limit is the full API's ceiling here;
+    the profile's own limit is applied again when the file is selected.
+    """
+    from .backend import EXTERNAL_MAX_BYTES
+
+    try:
+        options = json.loads(args.options)
+    except ValueError as exc:
+        raise CommandError(f"--options is not valid JSON ({exc}). Example: {OPTIONS_EXAMPLE}", EXIT_INPUT) from None
+    if not isinstance(options, dict):
+        raise CommandError(f"--options must be a JSON object. Example: {OPTIONS_EXAMPLE}", EXIT_INPUT)
+    workspace = Workspace(args.workspace)
+    try:
+        path = workspace.locate(args.file)
+        if not path.exists():
+            raise WorkspaceError(f"File not found: {args.file} (looked in {workspace.root})")
+        if path.is_file() and path.stat().st_size == 0:
+            raise WorkspaceError(f"{args.file} is empty; choose the saved configuration file")
+        workspace.snapshot(args.file, EXTERNAL_MAX_BYTES)
+    except WorkspaceError as exc:
+        raise CommandError(str(exc), EXIT_INPUT) from None
+    return options
 
 
 def remote_for(server, credential):
@@ -388,9 +450,10 @@ def resolve_workspace(args) -> None:
     if os.access(root, os.W_OK):
         return
     if explicit:
-        raise SystemExit(
+        raise CommandError(
             f"netconverter: the folder {str(root)!r} is not writable. "
-            f"Pass --workspace with a folder you own, for example --workspace {DEFAULT_WORKSPACE}."
+            f"Pass --workspace with a folder you own, for example --workspace {DEFAULT_WORKSPACE}.",
+            EXIT_INPUT,
         )
     DEFAULT_WORKSPACE.mkdir(mode=0o700, parents=True, exist_ok=True)
     print(
@@ -412,27 +475,62 @@ def workspace_settings(args) -> dict:
     except FileNotFoundError:
         if args.command in ACCOUNT_COMMANDS:
             return {}
-        raise SystemExit(
+        raise CommandError(
             f"netconverter: the folder {args.workspace!r} no longer exists (was it deleted?). "
-            "cd to your configuration folder and run the command again."
+            "cd to your configuration folder and run the command again.",
+            EXIT_INPUT,
         ) from None
+
+
+class _Parser(argparse.ArgumentParser):
+    """argparse with a "Did you mean" for a mistyped command or choice (#8)."""
+
+    def error(self, message):
+        match = re.search(r"argument (.+?): invalid choice: '([^']*)'", message)
+        action = match and next((a for a in self._actions if a.choices and match.group(1) in
+                                 {a.metavar, a.dest, "/".join(a.option_strings)}), None)
+        if not action:
+            super().error(message)
+        value, choices = match.group(2), [str(c) for c in action.choices]
+        close = difflib.get_close_matches(value, choices, n=1, cutoff=0.6)
+        hint = f" Did you mean '{close[0]}'?" if close else ""
+        if isinstance(action, argparse._SubParsersAction):
+            text = f"Unknown command '{value}'.{hint} Run `{self.prog} --help` for the list."
+        else:
+            text = f"Invalid value '{value}' for {match.group(1)}.{hint} Choose from: {', '.join(choices)}."
+        self.exit(EXIT_USAGE, f"netconverter: {text}\n")
+
+
+OPTIONS_HELP = ("job settings as a JSON object, for example "
+                f"{OPTIONS_EXAMPLE.removeprefix('--options ')}; "
+                "a YAML v2 decisions file goes in as {\"yaml_v2\": \"<YAML text>\"} (convert only)")
 
 
 def parser():
     from . import __version__
 
-    p = argparse.ArgumentParser(prog="netconverter")
-    p.add_argument("--version", action="version", version=f"netconverter-cli {__version__}")
-    p.add_argument("--workspace", default=None)
-    p.add_argument("--server", default=os.getenv("NETCONVERTER_URL"))
+    p = _Parser(prog="netconverter",
+                description="Migrate, validate and optimize network configurations from the folder that holds them. "
+                            "Run without a command for the full-screen app.",
+                epilog="Global options go before the command: netconverter --workspace DIR convert FILE ... "
+                       "Exit codes and examples: docs/COMMANDS.md.")
+    p.add_argument("--version", action="version", version=f"netconverter-cli {__version__}",
+                   help="print the client version and exit")
+    p.add_argument("--workspace", default=None, metavar="DIR",
+                   help="configuration folder to work in (default: the current folder)")
+    p.add_argument("--server", default=os.getenv("NETCONVERTER_URL"), metavar="URL",
+                   help="NetConverter API URL (default: NETCONVERTER_URL, else production)")
     p.add_argument(
         "--provider",
         choices=["openai", "anthropic", "gemini", "ollama"],
         default=os.getenv("NETCONVERTER_PROVIDER"),
+        metavar="NAME",
+        help="optional model provider for plain-language questions: openai, anthropic, gemini or ollama",
     )
-    p.add_argument("--model", default=os.getenv("NETCONVERTER_MODEL"))
-    subs = p.add_subparsers(dest="command")
-    subs.add_parser("run")
+    p.add_argument("--model", default=os.getenv("NETCONVERTER_MODEL"), metavar="ID",
+                   help="exact model ID for --provider (default: NETCONVERTER_MODEL)")
+    subs = p.add_subparsers(dest="command", metavar="COMMAND", title="commands")
+    subs.add_parser("run", help="(advanced) open the full-screen app; the same as no command")
     lic = subs.add_parser("license", help="read and accept the client license")
     lic.add_argument("license_action", nargs="?", choices=["show", "accept", "status"],
                      help="show the full text, accept it, or print the acceptance status")
@@ -452,7 +550,8 @@ def parser():
     mcp.add_argument("--auth", choices=list(MCP_AUTH_MODES), default=mcp_auth_default(),
                      help="credential: auto (the sign-in, else an API key), clerk or key; "
                           "default from NETCONVERTER_MCP_AUTH, else NETCONVERTER_AUTH")
-    mcp.add_argument("--mcp-url", default=os.getenv("NETCONVERTER_MCP_URL"))
+    mcp.add_argument("--mcp-url", default=os.getenv("NETCONVERTER_MCP_URL"), metavar="URL",
+                     help="NetConverter MCP endpoint for the remote tools (default: derived from --server)")
     mcp.add_argument("--no-remote", action="store_true", help="serve only the local file tools")
     mcp.add_argument("--guided", action="store_true",
                      help="revisioned draft tools with human approval; requires server capability")
@@ -467,7 +566,8 @@ def parser():
     from .connect import CLIENTS as _AI_CLIENTS
     connect = subs.add_parser(
         "connect", help="wire an AI assistant (Claude, Cursor, Gemini, ChatGPT, …) to this folder")
-    connect.add_argument("client", nargs="?", choices=list(_AI_CLIENTS))
+    connect.add_argument("client", nargs="?", choices=list(_AI_CLIENTS), metavar="CLIENT",
+                         help="assistant to connect: " + ", ".join(_AI_CLIENTS) + " (omit to list them)")
     connect.add_argument("--all", action="store_true", help="connect every AI assistant found on this computer")
     connect.add_argument("--print", action="store_true", dest="print_only", help="show the change without applying it")
     connect.add_argument("--yes", action="store_true", help="apply without asking (scripts)")
@@ -475,38 +575,69 @@ def parser():
     update = subs.add_parser("update", help="upgrade from PyPI, or install the latest verified release from GitHub")
     update.add_argument("--check", action="store_true", help="only report whether a newer release exists")
     update.add_argument("--yes", action="store_true", help="install without asking")
+    update.add_argument("--json", action="store_true", help="with --check: print the result as JSON")
     subs.add_parser("capabilities", help="vendors, conversion paths and limits for your credential")
     from .draft_cli import add_parser as add_draft_parser
     add_draft_parser(subs)
     from .project_cli import add_parser as add_project_parser
     add_project_parser(subs)
-    subs.add_parser("setup")
-    subs.add_parser("jobs")
+    subs.add_parser("setup", help="first-run setup: connect to NetConverter and, optionally, a model")
+    subs.add_parser("jobs", help="list your NetConverter jobs")
     from .one_shot import add_flags as add_output_flags
-    resume = subs.add_parser("resume")
-    resume.add_argument("job_id", nargs="?")
+    resume = subs.add_parser("resume", help="follow a job (or finish an interrupted submission)")
+    resume.add_argument("job_id", nargs="?", help="job to follow (default: the folder's active job)")
     add_output_flags(resume)
-    for name in ("validate", "analyze", "optimize", "convert"):
-        sub = subs.add_parser(name)
-        sub.add_argument("file")
-        sub.add_argument("--vendor", required=True, help="source vendor code (see `netconverter capabilities`)")
-        sub.add_argument("--to", dest="target", help="target vendor code (convert)")
-        sub.add_argument("--options", default="{}")
+    for name, summary in (("validate", "check a configuration: readiness, findings, parse gaps"),
+                          ("analyze", "(advanced) the same as validate"),
+                          ("optimize", "cleanup and optimization findings for a configuration"),
+                          ("convert", "migrate a configuration to another vendor (--to)")):
+        sub = subs.add_parser(name, help=summary)
+        sub.add_argument("file", help="configuration file inside the workspace folder")
+        sub.add_argument("--vendor", metavar="CODE",
+                         help="source vendor code, e.g. fortinet or cisco_asa (`netconverter capabilities` lists them)")
+        if name == "convert":
+            sub.add_argument("--to", dest="target", metavar="CODE",
+                             help="target vendor code, e.g. palo_alto_xml")
+        sub.add_argument("--options", default="{}", metavar="JSON", help=OPTIONS_HELP)
         add_output_flags(sub)
-    ask = subs.add_parser("ask")
-    ask.add_argument("question")
-    query = subs.add_parser("query")
-    query.add_argument("operation")
-    query.add_argument("--arguments", default="{}")
-    subs.add_parser("download")
-    subs.add_parser("allowance")
-    subs.add_parser("model-test")
-    plain = subs.add_parser("plain")
-    plain.add_argument("instruction", nargs="?")
+    ask = subs.add_parser("ask", help="one plain-language question about the active job (needs --provider)")
+    ask.add_argument("question", help="the question, in quotes")
+    query = subs.add_parser("query", help="a structured question about the active job (nat, routes, flow, …)")
+    query.add_argument("operation", help="unused_objects, unparsed_lines, routes, interfaces, policy, nat, dependencies or flow")
+    query.add_argument("--arguments", default="{}", metavar="JSON",
+                       help="""parameters as a JSON object, e.g. '{"object_name":"NAME"}' for dependencies""")
+    subs.add_parser("download", help="save the active job's outputs beside its source, hash-verified")
+    subs.add_parser("allowance", help="your remaining allowance and limits (the same as capabilities)")
+    subs.add_parser("model-test", help="(advanced) check that --provider/--model can choose operations")
+    plain = subs.add_parser("plain", help="a line prompt instead of the full-screen app")
+    plain.add_argument("instruction", nargs="?", help="run one app command (e.g. '/jobs') and exit")
     return p
 
 
+def _stderr(message: str) -> None:
+    print(message if message.startswith("netconverter") else f"netconverter: {message}", file=sys.stderr)
+
+
 def main(argv=None):
+    """Errors go to stderr with a distinct exit code (docs/COMMANDS.md § Exit codes)."""
+    try:  # JSON keeps "→" (#28); a legacy code page shows an escape instead of failing
+        sys.stdout.reconfigure(errors="backslashreplace")
+    except (AttributeError, ValueError):
+        pass
+    try:
+        _main(argv)
+    except CommandError as exc:
+        _stderr(exc.message)
+        raise  # a SystemExit whose code is the exit status; str() keeps the message
+    except KeyringLocked:
+        _stderr(KEYRING_LOCKED)
+        raise SystemExit(EXIT_AUTH) from None
+    except (KeyboardInterrupt, EOFError):
+        print(CANCELLED, file=sys.stderr)
+        raise SystemExit(EXIT_CANCELLED) from None
+
+
+def _main(argv=None):
     args = parser().parse_args(argv)
     from . import license as license_
     if args.command == "license":
@@ -533,15 +664,16 @@ def main(argv=None):
     if not args.server and saved_server and not workspace_server_trusted(saved_server):
         # connection.json travels with a shared or cloned folder: it must not be able
         # to point any credential (an API key, NETCONVERTER_API_KEY) at a foreign host.
-        raise SystemExit(
+        raise CommandError(
             f"netconverter: this folder's saved server {saved_server!r} is not a trusted NetConverter "
-            "host. Pass --server explicitly, or set NETCONVERTER_TRUSTED_HOSTS to trust it."
+            "host. Pass --server explicitly, or set NETCONVERTER_TRUSTED_HOSTS to trust it.",
+            EXIT_USAGE,
         )
     args.server = args.server or saved_server or DEFAULT_BASE
     args.provider = args.provider or settings.get("provider")
     args.model = args.model or settings.get("model")
     if args.command == "login" and args.key and args.device:
-        raise SystemExit("--device applies to Clerk sign-in; omit --key")
+        raise CommandError("--device applies to Clerk sign-in; omit --key", EXIT_USAGE)
     if args.command == "login" and (args.clerk or args.device or (not args.key and clerk_preferred(settings))):
         clerk_login(args, settings)
         return
@@ -572,7 +704,7 @@ def main(argv=None):
             }}))
             raise SystemExit(1) from None
         result = run_draft(args, credential)
-        print(json.dumps(result, sort_keys=True))
+        print(json.dumps(result, sort_keys=True, ensure_ascii=False))
         if not result["ok"]:
             raise SystemExit(1)
         return
@@ -599,6 +731,7 @@ def main(argv=None):
         return
     provider = None
     client = None
+    options = check_submission(args) if args.command in SUBMIT_COMMANDS else None
     try:
         if args.command == "setup" or (args.command in (None, "run") and not settings):
             client, provider = configure(args.workspace, {"server": args.server, "provider": args.provider, "model": args.model})
@@ -626,7 +759,13 @@ def main(argv=None):
                 )
             )
             return
-        credential = rest_credential(args.server, settings)
+        try:
+            credential = rest_credential(args.server, settings)
+        except CommandError:
+            if args.command in SUBMIT_COMMANDS and not args.vendor:  # the usage problem comes first
+                raise CommandError(VENDOR_REQUIRED + " `netconverter capabilities` lists the codes once "
+                                   "you are signed in.", EXIT_USAGE) from None
+            raise
         client, kind = open_client(credential, args.server)
         c = Controller(Path(args.workspace), client, provider, kind=kind,
                        remote=lambda: remote_for(args.server, credential))
@@ -641,8 +780,7 @@ def main(argv=None):
             c.capabilities()
             check_source_vendor(args.vendor, c.catalog)  # before anything is uploaded (#22)
             c.select(args.file, args.vendor)
-            options = json.loads(args.options)
-            if args.target:
+            if getattr(args, "target", None):
                 options["target_vendor"] = args.target
             result = c.submit("validate" if args.command == "analyze" else args.command, options)
         elif args.command == "resume":
@@ -669,7 +807,7 @@ def main(argv=None):
                     if line in {"/quit", "/exit"}:
                         break
                     try:
-                        print(json.dumps(execute(c, line), indent=2, default=str))
+                        print(json.dumps(execute(c, line), indent=2, default=str, ensure_ascii=False))
                     except Exception:
                         print(
                             "Command failed; use /help. No diagnostic payload was saved."
@@ -679,18 +817,24 @@ def main(argv=None):
         if args.command in SUMMARY_COMMANDS:  # a plain summary; --json for the raw response (#7)
             print(render(c, args, result))
         else:
-            print(json.dumps(result, indent=2, default=str))
-    except (ProviderError, OptionsError) as exc:
-        print(str(exc))
-        raise SystemExit(1) from None
+            print(json.dumps(result, indent=2, default=str, ensure_ascii=False))
+    except ProviderError as exc:
+        raise CommandError(str(exc), EXIT_FAILURE) from None
+    except OptionsError as exc:
+        raise CommandError(str(exc), EXIT_INPUT) from None
     except APIError as exc:
-        print(str(exc))
+        text = api_error_message(exc) if exc.status in (401, 403) else str(exc)
         if exc.detail:
-            print(json.dumps(exc.detail))
-        raise SystemExit(1) from None
-    except (ValueError, RuntimeError):
-        print("Invalid or unavailable operation; use --help or guided plain mode.")
-        raise SystemExit(1) from None
+            text += "\n" + json.dumps(exc.detail, ensure_ascii=False)
+        raise CommandError(text, api_exit_code(exc)) from None
+    except KeyringLocked:
+        raise
+    except ClerkError as exc:
+        raise CommandError(str(exc) or SIGNED_OUT, EXIT_AUTH) from None
+    except ValueError as exc:  # WorkspaceError and other refused input: the reason, verbatim
+        raise CommandError(str(exc) or "Invalid input; see `netconverter --help`.", EXIT_INPUT) from None
+    except RuntimeError as exc:
+        raise CommandError(str(exc) or "The operation failed; see `netconverter --help`.", EXIT_FAILURE) from None
     finally:
         if client:
             client.close()

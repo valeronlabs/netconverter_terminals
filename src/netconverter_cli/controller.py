@@ -118,7 +118,7 @@ class Controller:
         except APIError as exc:
             if self.external and exc.status == 404:
                 raise WorkspaceError("This NetConverter server does not publish its capabilities yet "
-                                     "(GET /capabilities); update the server, then retry /allowance") from None
+                                     "(GET /capabilities); update the server, then retry /refresh") from None
             raise
         self.catalog = (Catalog.from_external if self.external else Catalog.from_quick)(self.allowance)
         return self.allowance

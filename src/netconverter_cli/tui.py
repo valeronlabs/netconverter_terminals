@@ -16,6 +16,7 @@ from .api import APIError
 from .branding import header
 from .catalog import label
 from .commands import execute
+from .errors import api_error_message
 from .palette import ACCENT, BG, BORDER, DIM, ERROR, FG, MUTED, PANEL, SUCCESS, SURFACE, WARNING
 from .presentation import (activity_line, activity_view, ago, artifacts_view, badge, card,
                            commands_table, details_view, help_view, jobs_view, literal,
@@ -346,6 +347,8 @@ class Terminal(App):
     def dispatch(self, text, quiet=False):
         if self.busy or self.answer_callback:
             return
+        if text == '/refresh':  # #8: the documented name; /allowance stays as the internal alias
+            text = '/allowance'
         command = text.split(' ', 1)[0]
         if text in {'/clear', '/home'}:
             if text == '/clear':
@@ -493,16 +496,12 @@ class Terminal(App):
             result = {'error': str(exc)}
         except APIError as exc:
             self.connection_error = exc.status in {0, 401, 403} or exc.status >= 500
-            limit = f'{self.controller.max_bytes():,}'
-            messages = {401: 'NetConverter did not accept your sign-in. Exit and run netconverter login.',
-                        403: 'This credential lacks permission for that action. Contact NetConverter.',
-                        413: f'The configuration exceeds your {limit}-byte limit.',
-                        422: 'NetConverter could not accept these choices. Review them and retry.',
-                        429: 'A usage or active-job limit was reached. Check /jobs and /allowance.',
-                        0: 'Connection interrupted. /resume recovers a pending submission.'}
-            result = {'error': messages.get(exc.status, f'Server request failed (HTTP {exc.status}). Retry, or contact NetConverter with the job ID.')}
-        except (ValueError, RuntimeError):
-            result = {'error': 'Check the command and its parameters. /help shows the supported commands.'}
+            # The server's own reason when it sent one (#9); one signed-out sentence for 401.
+            result = {'error': api_error_message(exc, max_bytes=self.controller.max_bytes())}
+        except (ValueError, RuntimeError) as exc:
+            reason = str(exc).rstrip('.')
+            result = {'error': (f'{reason}. ' if reason else 'Check the command and its parameters. ')
+                      + '/help shows the supported commands.'}
         except Exception:
             result = {'error': 'The operation failed. Your original configuration and prior outputs are preserved.'}
         self.call_from_thread(self.finish_command, result, text, quiet)

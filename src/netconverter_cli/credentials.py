@@ -3,10 +3,62 @@
 import getpass
 import os
 import sys
+import threading
+import time
 
 import keyring
 
+from .errors import KEYRING_LOCKED
+
 SERVICE = "NetConverter Terminal"
+# A locked Secret Service collection (or a keychain waiting on a dialog) can block
+# a keyring call indefinitely; whoami hung for over 30 s after a reboot (#10).
+KEYRING_TIMEOUT_S = 5.0
+_RETRY_LOCKED_AFTER_S = 30.0
+_locked_at: float | None = None
+
+
+class KeyringLocked(RuntimeError):
+    """The OS credential store did not answer in time."""
+
+    def __init__(self):
+        super().__init__(KEYRING_LOCKED)
+
+
+def _timeout() -> float:
+    """KEYRING_TIMEOUT_S, or NETCONVERTER_KEYRING_TIMEOUT_S for a keychain that asks slowly."""
+    try:
+        return max(0.1, float(os.environ["NETCONVERTER_KEYRING_TIMEOUT_S"]))
+    except (KeyError, ValueError):
+        return KEYRING_TIMEOUT_S
+
+
+def _bounded(call, *args):
+    """Run one keyring call with a deadline; a call that never returns means locked.
+
+    After one timeout, calls fail fast for a while instead of each waiting again.
+    """
+    global _locked_at
+    if _locked_at is not None and time.monotonic() - _locked_at < _RETRY_LOCKED_AFTER_S:
+        raise KeyringLocked()
+    box = {}
+
+    def target():
+        try:
+            box["value"] = call(*args)
+        except BaseException as exc:  # noqa: BLE001 - re-raised in the caller's thread
+            box["error"] = exc
+
+    worker = threading.Thread(target=target, name="netconverter-keyring", daemon=True)
+    worker.start()
+    worker.join(_timeout())
+    if worker.is_alive():
+        _locked_at = time.monotonic()
+        raise KeyringLocked()
+    _locked_at = None
+    if "error" in box:
+        raise box["error"]
+    return box.get("value")
 # Only operating-system credential stores are trusted. Third-party keyring
 # backends (plaintext files, encrypted-file backends with a master password on
 # disk) are refused; there is no fallback secrets file.
@@ -55,7 +107,9 @@ def keyring_problem() -> str:
     """
     session_bus_fallback()
     try:
-        backend = keyring.get_keyring()
+        backend = _bounded(keyring.get_keyring)
+    except KeyringLocked:
+        return KEYRING_LOCKED
     except Exception as exc:  # noqa: BLE001 - any keyring failure is the answer
         return f"the keyring library failed ({type(exc).__name__})"
     if backend.__class__.__module__ in _OS_BACKENDS:
@@ -72,7 +126,7 @@ def keyring_problem() -> str:
 
 def _os_backend():
     session_bus_fallback()
-    backend = keyring.get_keyring()
+    backend = _bounded(keyring.get_keyring)
     if backend.__class__.__module__ not in _OS_BACKENDS:
         return None
     return backend
@@ -81,11 +135,22 @@ def _os_backend():
 def keyring_available() -> bool:
     try:
         return _os_backend() is not None
+    except KeyringLocked:
+        raise
     except Exception:
         return False
 
 
-def get_secret(name: str, *, prompt: bool = True) -> str:
+def _prompt_text(name: str, label: str | None) -> str:
+    """The hidden-input prompt: names the host, never the internal credential-store id (#9)."""
+    if name == "server" or name.startswith("server:"):
+        what = f"NetConverter API key for {label}" if label else "NetConverter API key"
+    else:
+        what = f"{name} API key"
+    return f"{what} (hidden; kept in memory for this run only): "
+
+
+def get_secret(name: str, *, prompt: bool = True, label: str | None = None) -> str:
     value = os.environ.get(
         "NETCONVERTER_API_KEY"
         if name == "server" or name.startswith("server:")
@@ -96,19 +161,17 @@ def get_secret(name: str, *, prompt: bool = True) -> str:
     try:
         backend = _os_backend()
         if backend is None:
-            return (
-                getpass.getpass(f"{name} API key (hidden, memory only): ").strip()
-                if prompt
-                else ""
-            )
-        value = backend.get_password(SERVICE, name)
+            return getpass.getpass(_prompt_text(name, label)).strip() if prompt else ""
+        value = _bounded(backend.get_password, SERVICE, name)
+    except KeyringLocked:
+        raise
     except Exception:
         value = None
     if value:
         return value
     if not prompt:
         return ""
-    return getpass.getpass(f"{name} API key (hidden, memory only): ").strip()
+    return getpass.getpass(_prompt_text(name, label)).strip()
 
 
 def save_secret(name: str, value: str) -> bool:
@@ -116,8 +179,10 @@ def save_secret(name: str, value: str) -> bool:
         backend = _os_backend()
         if backend is None:
             return False
-        backend.set_password(SERVICE, name, value)
+        _bounded(backend.set_password, SERVICE, name, value)
         return True
+    except KeyringLocked:
+        raise
     except Exception:
         return False
 
@@ -128,7 +193,9 @@ def load_secret(name: str) -> str:
         backend = _os_backend()
         if backend is None:
             return ""
-        return backend.get_password(SERVICE, name) or ""
+        return _bounded(backend.get_password, SERVICE, name) or ""
+    except KeyringLocked:
+        raise
     except Exception:
         return ""
 
@@ -139,9 +206,11 @@ def delete_secret(name: str) -> bool:
         backend = _os_backend()
         if backend is None:
             return False
-        if backend.get_password(SERVICE, name) is None:
+        if _bounded(backend.get_password, SERVICE, name) is None:
             return True
-        backend.delete_password(SERVICE, name)
+        _bounded(backend.delete_password, SERVICE, name)
         return True
+    except KeyringLocked:
+        raise
     except Exception:
         return False

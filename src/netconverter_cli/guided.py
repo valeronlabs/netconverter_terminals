@@ -14,7 +14,18 @@ from .workspace import WorkspaceError
 # Downloaded artifacts are named "<job id>.<file>"; they are outputs, not sources.
 _ARTIFACT = re.compile(r'(?:[a-z]{3}_[A-Za-z0-9]{6,}|[0-9a-f]{8}-[0-9a-f-]{27})\.')
 _SKIP_SUFFIXES = {'.zip', '.xlsx', '.pdf', '.png', '.jpg', '.jpeg', '.gif', '.docx', '.pptx', '.gz', '.tgz', '.whl'}
-# First match wins; only codes the server offers are ever suggested.
+# Platforms NetConverter does not convert, checked before any signature so their
+# files are never offered as a look-alike (NX-OS read as ArubaOS, SRX as a Junos
+# router). (name, code prefix the server would list if it supported it, pattern)
+_UNSUPPORTED = [
+    ('Cisco NX-OS', 'cisco_nxos', re.compile(
+        r'^(?:!Command: show running-config|version \d+\.\d+\(\d+\)|vrf context management|'
+        r'feature (?:nxapi|vpc|lacp|interface-vlan|hsrp|scp-server|ospf|bgp)\b)', re.M)),
+    ('Juniper SRX', 'juniper_srx', re.compile(
+        r'^(?:set security (?:zones|policies|nat) |\s*security-zone \S+ \{)', re.M)),
+]
+# First match wins; only codes the server offers are ever suggested. A code ending
+# in "_" is a family whose switch/router member is chosen from the content.
 _SIGNATURES = [
     ('cisco_asa', re.compile(r'^(?:ASA Version|: Saved|access-list \S+ extended|object-group network)', re.M)),
     ('fortinet', re.compile(r'^config (?:firewall|system) ', re.M)),
@@ -24,16 +35,38 @@ _SIGNATURES = [
     ('juniper_set_', re.compile(r'^set (?:system|interfaces|protocols|security|vlans|routing-options) ', re.M)),
     ('juniper_junos_', re.compile(r'^(?:system|interfaces|protocols|security|vlans) \{', re.M)),
     ('aruba_cx_switch', re.compile(r'^(?:!Version ArubaOS-CX|vsx$|interface 1/1/)', re.M)),
-    ('aruba_os_switch', re.compile(r'Configuration Editor|^vlan \d+\s*\n\s+name ', re.M)),
-    ('cisco_ios_xe_', re.compile(r'^(?:Building configuration|version 1[5-7]\.|interface GigabitEthernet|ip routing)', re.M)),
+    # ArubaOS-Switch writes quoted VLAN names and tagged/untagged port lists; Cisco's
+    # "vlan 10 / name USERS" has neither (valeronlabs#5).
+    ('aruba_os_switch', re.compile(
+        r'Configuration Editor|^vlan \d+\s*\n\s+name "|^\s+(?:un)?tagged (?:\d|[A-Z]\d|Trk)', re.M)),
+    ('cisco_ios_xe_', re.compile(
+        r'^(?:Building configuration|version 1[5-7]\.|interface (?:Gigabit|TenGigabit|Fast)Ethernet|ip routing|'
+        r'spanning-tree mode |vlan \d+\s*\n name \S|\s+switchport mode )', re.M)),
     ('cisco_fmc', re.compile(r'"(?:accessPolicies|deviceRecords|objects)"\s*:')),
 ]
+# Switching content: access/trunk ports, a VLAN table, spanning tree.
+_SWITCHING = re.compile(r'^(?:\s*switchport\b|spanning-tree mode |vlan \d+\s*$|interface Vlan\d|vlans \{|set vlans |'
+                        r'\s*family ethernet-switching)', re.M)
+
+
+def unsupported_vendor(text, candidates=()):
+    """The name of a platform NetConverter does not support, when the file is one; else None."""
+    for name, prefix, pattern in _UNSUPPORTED:
+        if pattern.search(text) and not any(c.startswith(prefix) for c in candidates):
+            return name
+    return None
 
 
 def guess_vendor(text, candidates):
     """A suggested source vendor, read locally from the file head; None when unsure."""
+    if unsupported_vendor(text, candidates):
+        return None
     for code, pattern in _SIGNATURES:
         if pattern.search(text):
+            if code.endswith('_'):
+                preferred = code + ('switch' if _SWITCHING.search(text) else 'router')
+                if preferred in candidates:
+                    return preferred
             for candidate in candidates:
                 if candidate == code or (code.endswith('_') and candidate.startswith(code)):
                     return candidate
@@ -154,7 +187,12 @@ class Guided:
             self.vendor_chosen(sources[0])
             return
         choices = self.catalog.grouped(sources)
-        guess = guess_vendor(content[:65536].decode('utf-8', 'replace'), [c for _, c in choices])
+        head = content[:65536].decode('utf-8', 'replace')
+        unsupported = unsupported_vendor(head, [c for _, c in choices])
+        if unsupported:
+            self.app.write_note(f'{Path(self.filename).name} looks like {unsupported}, which is '
+                                'not supported yet. Choose a vendor below only if the file is something else.')
+        guess = guess_vendor(head, [c for _, c in choices])
         highlight = 0
         if guess:
             highlight = [c for _, c in choices].index(guess)
@@ -210,7 +248,7 @@ class Guided:
         field, key, title = fields[0]
         values = self.catalog.quick.get(key) or []
         if not values:
-            self.app.show_error('Load supported settings with /allowance, then use /convert.')
+            self.app.show_error('Load supported settings with /refresh, then use /convert.')
             return
 
         def selected(value):

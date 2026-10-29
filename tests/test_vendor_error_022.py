@@ -62,8 +62,8 @@ def test_validate_vendor_auto_is_refused_before_any_upload(tmp_path, monkeypatch
     monkeypatch.setattr(cli, "get_secret", lambda *a, **k: "nck_synthetic")
     with pytest.raises(SystemExit) as info:
         cli.main(["--workspace", str(tmp_path), "--server", SERVER, "validate", "srx.conf", "--vendor", "auto"])
-    assert info.value.code == 1
-    out = capsys.readouterr().out
+    assert info.value.code == 2  # a usage error (#9 exit codes)
+    out = capsys.readouterr().err
     assert "'auto'" in out and "cisco_asa" in out and "juniper_junos_router" in out
     assert "palo_alto_set" not in out  # target-only codes are not offered as a source
     assert "netconverter capabilities" in out
@@ -86,6 +86,6 @@ def test_validate_with_a_server_refused_vendor_prints_the_reason(tmp_path, monke
     monkeypatch.setattr(cli, "get_secret", lambda *a, **k: "nck_synthetic")
     with pytest.raises(SystemExit):
         cli.main(["--workspace", str(tmp_path), "--server", SERVER, "validate", "srx.conf", "--vendor", "auto"])
-    out = capsys.readouterr().out
+    out = capsys.readouterr().err  # errors go to stderr (#9)
     assert REASON in out
     assert json.loads(out.splitlines()[-1]) if out.splitlines()[-1].startswith("{") else True

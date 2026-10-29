@@ -43,6 +43,7 @@ Do these once, before the first tag. Nothing can be published until they exist.
 1. In the private repo (`devnexthop/netconverter_terminals`), on `main`:
    - set the version in `pyproject.toml` and `src/netconverter_cli/__init__.py`;
    - `uv lock` (updates the project version in `uv.lock`);
+   - `python3 scripts/sync_readme_version.py` (the README banner; a test fails when it differs);
    - add a `## <version> — <date>` section at the top of `CHANGELOG.md` (it becomes the
      release notes);
    - `uv run pytest tests -q`, `uv build`, `uvx twine check --strict dist/*`;

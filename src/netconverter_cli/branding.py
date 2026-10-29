@@ -53,7 +53,7 @@ def header(width, *, server='checking', profile='', bridge=None, model=None, all
     """
     server_pill = {
         'connected': _pill('●', 'Server', SUCCESS, profile or None),
-        'offline': _pill('●', 'Server', ERROR, 'offline · /allowance'),
+        'offline': _pill('●', 'Server', ERROR, 'offline · /refresh to retry'),
     }.get(server, _pill('●', 'Server', WARNING, 'checking'))
     # (priority, pill) in display order; lower priority numbers survive a narrow terminal.
     pills = [(0, server_pill)]

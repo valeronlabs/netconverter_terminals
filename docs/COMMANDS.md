@@ -31,7 +31,7 @@ commands their arguments there (`/open "edge.cfg" fortinet`).
 | `/flow {"source_ip":…,"destination_ip":…,"protocol":"tcp","destination_port":80}` | Which rule decides a flow |
 | `/activity` · `/connect` | What your AI did through the bridge · wire an assistant |
 | `/model` | Optional in-app model for plain-language questions |
-| `/allowance` | Refresh capabilities and limits |
+| `/refresh` (`/allowance`) | Reconnect and reload capabilities and limits |
 | `/help` · `/clear` · `/home` | Commands · clear · start card |
 
 Questions need a completed job: use `/resume` first. Selecting another file or
@@ -45,7 +45,7 @@ Questions need a completed job: use `/resume` first. Selecting another file or
 | `netconverter login` with an `nck_…` API or trial key | External API (+ MCP when the key has `mcp:tools`) | Same; trial keys have trial limits |
 | A 0.1.x Terminal Quick key | The pilot profile only | ASA → Palo Alto SET/XML/Panorama, 50,000 bytes |
 
-The app shows the profile in the header and in `/allowance`.
+The app shows the profile in the header and in `/refresh`.
 
 ## Conversion settings
 
@@ -67,6 +67,28 @@ sends them as a YAML v2 decisions document (`zone_mapping`, `options`, `pa_targe
 unknown key, or a request field (`source_config`, vendors, `technology`, `job_type`,
 `manual_mappings`) is refused before anything is uploaded, naming it. The full API also accepts
 `selected_device_groups`, `file_name`, `optimization_options` (optimize) and a whole `yaml_v2`.
+
+### YAML v2 decisions (`yaml_v2`)
+
+A conversion can carry a YAML v2 decisions document (zone mappings, interface
+mappings and the other sections `GET /capabilities` lists under `schemas.yaml_v2`).
+Pass it in `--options` as `"yaml_v2"`, either as YAML text or as a JSON object;
+it applies to `convert` only, and the server checks it strictly (a typo'd section or
+broken YAML is refused with its line and column, exit code 4). The limit is 1 MiB.
+
+```sh
+# YAML text from a file (jq builds the JSON string safely)
+netconverter convert edge.cfg --vendor fortinet --to palo_alto_xml \
+  --options "$(jq -Rs '{yaml_v2: .}' decisions.yaml)"
+# or inline, as an object
+netconverter convert edge.cfg --vendor fortinet --to palo_alto_xml \
+  --options '{"yaml_v2": {"zone_mappings": {"inside": "Trust"}}}'
+```
+
+The MCP bridge's `submit_file` does not take `yaml_v2`: a decisions document is yours to
+author and review, so it goes in through the terminal command above, never through the AI
+conversation. Bridge `options` are the typed settings listed earlier, up to 16,000
+characters of JSON.
 
 ## Plain CLI
 
@@ -93,7 +115,7 @@ netconverter connect --all               # every assistant found on this compute
 netconverter connect chatgpt             # ChatGPT / claude.ai: prints remote-connector setup steps
 netconverter mcp --workspace ~/migrations   # what an assistant runs; not for interactive use
 netconverter mcp --full --workspace ~/migrations     # the wider view (strict is the default)
-netconverter update --check              # is a newer release published? (JSON)
+netconverter update --check              # is a newer release published? (--json for JSON)
 netconverter update                      # verify and install it with uv, after a prompt
 netconverter update --yes                # same, without the prompt
 ```
@@ -125,7 +147,7 @@ delays a command; its result is cached in your user cache folder.
 | `submit_file(path, source_vendor, target_vendor?, job_type?, options?)` | `job_id`, `status`, `sha256`, `bytes`. `job_type`: `convert`, `validate`, `optimize`, or `analyze` (= validate). `options` keys (typed; anything else is refused naming it): `selected_device_groups`, `file_name`, `optimization_options` (optimize), and for convert `zone_mapping`, `remove_unused_objects`, `enable_appid`, `app_id_implementation`, `add_security_profiles`, `log_all_rules`, `implicit_deny`, `panos_target_version` / `routing_engine` / `default_profile_group` (Palo Alto targets), `panorama_device_group` / `panorama_template` (Panorama), `pipeline_mode` (pilot keys). On the full API the convert settings travel as a `yaml_v2` decisions document |
 | `job_status(job_id)` | Status, verdict, review flag, progress and stage when sent, reason counts, vendors |
 | `wait_for_job(job_id, timeout_s=45)` | The `job_status` summary plus `waited_s` and `timed_out` (plus `next` when still running: call it again); polls 2 s, ×1.5, up to 15 s apart, at most 600 s. The default stays under the 60 s tool timeout of Codex and OpenClaw; pass a larger `timeout_s` only when the client allows it. Sends MCP progress notifications when the call has a progress token |
-| `account()` | `tier`, `job_types`, `rate_limit_per_min`, `daily_quota`, `auth_kind`, `profile`, `client_version`, `update_available`, `latest_version`, `strict_mode` (the `--strict` flag), `view_mode` (the view the server applies to this session, from `get_account`), `strict_enforced_by` (`server` when that view is strict, `client` while the bridge enforces it locally), `credential_source` (`clerk_session`, `api_key_environment`, `api_key_stored` or `none`; the one credential REST and the remote tools share) |
+| `account()` | Signed out: `status` (`signed_out`, `keyring_unreachable`), `signed_in: false`, `message`, `client_version`, `update_available`, `latest_version` (not an error). Signed in: `tier`, `job_types`, `rate_limit_per_min`, `daily_quota`, `auth_kind`, `profile`, `client_version`, `update_available`, `latest_version`, `strict_mode` (the `--strict` flag), `view_mode` (the view the server applies to this session, from `get_account`), `strict_enforced_by` (`server` when that view is strict, `client` while the bridge enforces it locally), `credential_source` (`clerk_session`, `api_key_environment`, `api_key_stored` or `none`; the one credential REST and the remote tools share) |
 | `download(job_id, dest_dir=".")` | Saved file names, sizes and SHA-256 |
 
 Remote NetConverter tools are proxied only from a fixed allowlist, and never a
@@ -156,8 +178,27 @@ your sign-in, while `mcp` prefers the sign-in and says on stderr which API key i
 `NETCONVERTER_MCP_AUTH` overrides it for `mcp` only), `NETCONVERTER_TRUSTED_HOSTS`, `NETCONVERTER_MCP_VIEW=full` (same as `mcp --full`; strict is the default, and an
 explicit `--strict` wins),
 `NETCONVERTER_NO_UPDATE_CHECK=1` (no daily update check or notice; `account` then reports
-`update_available: null`).
+`update_available: null`), `NETCONVERTER_KEYRING_TIMEOUT_S` (how long to wait for the OS keyring
+before reporting it locked; default 5).
 Never put a literal key in shell history or a shared script.
+
+## Exit codes
+
+Plain commands print results on stdout and every error on stderr, as one
+sentence that names the reason (the server's own reason when it sent one).
+
+| Code | Meaning |
+| --- | --- |
+| `0` | Success |
+| `1` | The command ran but did not succeed (a change was not applied, an update or model check failed) |
+| `2` | Usage: unknown command or option, missing or unknown `--vendor` |
+| `3` | Sign-in: not signed in, sign-in rejected or the keyring is locked, or the credential lacks the entitlement (HTTP 401/403) |
+| `4` | Input refused: a missing, empty, oversized or out-of-workspace file, malformed `--options`, or the server's 400/404/409/413/422 reason |
+| `5` | NetConverter unreachable or failing: connection error, HTTP 429, 5xx |
+| `130` | Cancelled with Ctrl-C ("Cancelled. Nothing was saved.") |
+
+Local checks (the file and `--options`) run before the sign-in, so a missing
+file is reported as a missing file, never as "not signed in".
 
 ## Troubleshooting
 
@@ -167,9 +208,9 @@ Never put a literal key in shell history or a shared script.
 | Setup suggests localhost | Run `netconverter --server https://api.netconverter.ai/external/v1 setup` to replace earlier demo settings |
 | 401 / invalid key | Rerun `login`; verify your issued key, its server, and whether it was revoked |
 | 403 / restricted access | The credential lacks that permission (for example a pilot key on a non-ASA source); `netconverter capabilities` shows what it can do |
-| 413 / file too large | Check `wc -c FILE` against the limit in `/allowance` (5 MB full API, 50 KB trial and pilot keys) |
+| 413 / file too large | Check `wc -c FILE` against the limit in `/refresh` (5 MB full API, 50 KB trial and pilot keys) |
 | 422 / required decisions | Complete the indicated conversion fields using the server's supported choices |
-| 429 / quota or active job | Check `/allowance` and `/jobs`; resume the existing active job or wait for the UTC daily reset |
+| 429 / quota or active job | Check `/refresh` and `/jobs`; resume the existing active job or wait for the UTC daily reset |
 | Model unavailable or forbidden operation | Continue using guided commands; use `/model` to retry with an accessible model; errors distinguish key, access, quota, rate limit, timeout, and tool incompatibility |
 | Ollama connection fails | Start the local Ollama service and select an already installed tool-capable model; no hosted fallback is attempted |
 | File not listed | Hidden files, downloaded outputs and binary types are skipped; choose **Type a relative file path** |
@@ -181,6 +222,7 @@ Never put a literal key in shell history or a shared script.
 | No verified configuration | Read validation reports and warnings; evidence can be available even when no deployable output is produced |
 | Proxy-only network fails | Client HTTP connections ignore environment proxy settings and do not follow redirects; use a network with direct access to configured endpoints |
 | Full-screen UI unsuitable | Use `netconverter plain` or individual CLI commands |
+| "Your system keyring is locked" (exit 3) | The OS keyring did not answer within 5 seconds (a locked Secret Service collection after a reboot, or a keychain waiting for a password). Unlock it (for example by logging in to the desktop session), or sign in again with `netconverter login` |
 | `keyring_unreachable` from the bridge (Linux) | The assistant launched `netconverter mcp` without `DBUS_SESSION_BUS_ADDRESS`; the bridge tries `$XDG_RUNTIME_DIR/bus` and `/run/user/<uid>/bus`, else set that variable (or `NETCONVERTER_API_KEY`) in the assistant's MCP server environment and restart it |
 | Assistant cannot see a NetConverter tool | The bridge lists only allowlisted remote tools the server offers (fewer with `--strict`); update the client with `netconverter update` |
 | `netconverter update` says uv is not on PATH | Install uv, or follow the printed download, `shasum -a 256 -c SHA256SUMS` and `uv tool install --force` steps |

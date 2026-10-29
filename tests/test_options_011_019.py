@@ -180,6 +180,7 @@ def test_cli_names_an_unknown_option_and_uploads_nothing(workspace, monkeypatch,
     with pytest.raises(SystemExit) as exc:
         cli.main(["--workspace", str(workspace), "--server", SERVER, "convert", "asa.cfg", "--vendor",
                   "cisco_asa", "--to", "palo_alto_xml", "--options", '{"enable_app_id": true}'])
-    assert exc.value.code == 1
-    assert "enable_app_id" in capsys.readouterr().out
+    assert exc.value.code == 4  # refused input (docs/COMMANDS.md exit codes)
+    captured = capsys.readouterr()
+    assert "enable_app_id" in captured.err + captured.out
     assert not server.posts()

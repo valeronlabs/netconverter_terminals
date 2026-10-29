@@ -7,7 +7,7 @@
 NetConverter — by ValeronLabs LLC.
 
 ```text
-◆ NetConverter  v0.3.0                      ● Server   ◆ Bridge claude-code · 2m ago
+◆ NetConverter  v0.4.3                      ● Server   ◆ Bridge claude-code · 2m ago
 ▍ Start
 ▍ /convert    Migrate a configuration to another vendor
 ▍ /validate   Check a configuration before migrating
@@ -84,6 +84,10 @@ Upgrading from `netconverter-terminal` 0.1.x: `uv tool uninstall netconverter-te
 first. Saved keys and sign-ins carry over (Keychain service **NetConverter Terminal**).
 
 Full walkthrough: [Quick start](QUICK_START.md).
+
+A YAML v2 decisions file (zone and interface mappings) rides along with a conversion:
+`netconverter convert edge.cfg --vendor fortinet --to palo_alto_xml --options "$(jq -Rs '{yaml_v2: .}' decisions.yaml)"`,
+or inline as `--options '{"yaml_v2": {...}}'`; see [docs/COMMANDS.md](docs/COMMANDS.md#yaml-v2-decisions-yaml_v2).
 
 ## Use it from your AI
 

@@ -68,7 +68,7 @@ def test_auth_key_override_keeps_the_key_prompt(monkeypatch):
     secret = Mock(return_value="nck_TYPED")
     monkeypatch.setattr(cli, "get_secret", secret)
     assert cli.rest_credential(PROD, {}) == "nck_TYPED"
-    secret.assert_called_once_with(setup.account(PROD))
+    secret.assert_called_once_with(setup.account(PROD), prompt=True, label="api.netconverter.ai")
 
 
 def test_auth_clerk_override_ignores_a_stored_key(monkeypatch):
@@ -202,5 +202,5 @@ def test_blank_key_prompt_does_not_adopt_the_env_key(monkeypatch):
     monkeypatch.setenv("NETCONVERTER_API_KEY", "nck_FROM_ENV")
     monkeypatch.setattr(setup, "load_secret", lambda name: "")
     signin = Mock(allowed=Mock(return_value=False))
-    with pytest.raises(ValueError):
+    with pytest.raises(SystemExit, match="not signed in"):  # the one signed-out sentence (#10)
         setup.connect_credential(PROD, signin, ask=Mock(), secret=lambda prompt: "")

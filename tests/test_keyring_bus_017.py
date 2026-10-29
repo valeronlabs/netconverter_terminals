@@ -78,7 +78,8 @@ def test_bridge_without_a_credential_explains_an_unreachable_keyring(tmp_path, m
     assert "not signed in" not in payload["message"].lower()
     # The account tool answers with the same status instead of a bare "not signed in".
     account = json.loads(bridge.call("account", {})["content"][0]["text"])
-    assert account["error"] == "keyring_unreachable"
+    assert account["status"] == "keyring_unreachable" and account["signed_in"] is False  # a status (#21)
+    assert "DBUS_SESSION_BUS_ADDRESS" in account["message"]
 
 
 def test_bridge_without_a_credential_and_a_working_keyring_says_sign_in(tmp_path, monkeypatch):

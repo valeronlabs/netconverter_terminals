@@ -42,8 +42,8 @@ class GitHub:
         return httpx.Response(404)
 
 
-def args(check=False, yes=False):
-    return SimpleNamespace(check=check, yes=yes)
+def args(check=False, yes=False, json=False):
+    return SimpleNamespace(check=check, yes=yes, json=json)
 
 
 def test_versions_compare_numerically():
@@ -54,7 +54,7 @@ def test_versions_compare_numerically():
 
 def test_check_only_reports(capsys):
     github = GitHub()
-    code = update.run(args(check=True), transport=httpx.MockTransport(github))
+    code = update.run(args(check=True, json=True), transport=httpx.MockTransport(github))  # JSON behind --json (#8)
     assert code == 0
     assert json.loads(capsys.readouterr().out) == {
         "installed": __version__, "latest": "9.8.7", "update_available": True}

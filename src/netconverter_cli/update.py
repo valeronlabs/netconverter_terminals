@@ -234,8 +234,13 @@ def run(args, *, transport=None, runner=subprocess.run, which=shutil.which, ask=
     except OSError:
         pass
     if args.check:
-        print(json.dumps({"installed": __version__, "latest": release["version"],
-                          "update_available": available}))
+        if getattr(args, "json", False):
+            print(json.dumps({"installed": __version__, "latest": release["version"],
+                              "update_available": available}))
+        elif available:
+            print(f"Update available: {__version__} → {release['version']}. Run `netconverter update`.")
+        else:
+            print(f"NetConverter CLI {__version__} is up to date.")
         return 0
     if not available:
         print(f"NetConverter CLI {__version__} is up to date (latest release {release['version']}).")

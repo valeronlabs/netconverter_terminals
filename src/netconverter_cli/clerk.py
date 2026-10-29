@@ -25,6 +25,7 @@ from urllib.parse import parse_qs, urlencode, urlsplit
 import httpx
 
 from .credentials import delete_secret, keyring_available, load_secret, save_secret
+from .errors import SIGNED_OUT
 
 ISSUER = "https://clerk.netconverter.ai"
 CLIENT_ID = "RjSv1z2Gms6iS96s"
@@ -494,7 +495,7 @@ class ClerkSession:
     def token(self) -> str:
         with self._lock:
             if self._tokens is None:
-                raise ClerkError("Not signed in; run `netconverter login --clerk`")
+                raise ClerkError(SIGNED_OUT)
             if self._tokens.expired(self._clock()) and self._tokens.refresh_token:
                 self._refresh_locked()
             return self._tokens.access_token

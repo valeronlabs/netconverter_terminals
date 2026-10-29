@@ -101,7 +101,7 @@ HELP_SECTIONS = [
     ]),
     ('Session', [
         ('/walkthrough [STEP]', 'A short tour: jobs, privacy, AI integrations'),
-        ('/allowance', 'Refresh server capabilities and limits'),
+        ('/refresh', 'Reconnect and reload server capabilities and limits'),
         ('/clear  /home', 'Clear the conversation · show the start card'),
     ]),
 ]
@@ -131,7 +131,7 @@ def folder_view(listing):
     if not listing['inside_workspace']:
         hint = 'Outside the current folder · /cd there before opening files'
     rows += [Text(''), literal(hint, MUTED)]
-    return card(listing['folder'], Group(*rows))
+    return card(_home(listing['folder']), Group(*rows))  # the "Saved in" form (#28)
 
 
 def walkthrough_view(index):
@@ -163,7 +163,7 @@ def help_view():
         table.add_row(literal(section.upper(), f'bold {MUTED}'), '')
         for command, description in rows:
             table.add_row(command, description)
-    hint = literal('↑ ↓ choose · 1–9 jump · Enter continue · Esc cancel · Ctrl+Q quit', MUTED)
+    hint = literal('Type a command · Esc close · Ctrl+Q quit', MUTED)  # a static card, not a picker (#28)
     return card('Commands', Group(table, Text(''), hint))
 
 
