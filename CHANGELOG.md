@@ -1,5 +1,44 @@
 # Changelog
 
+## 0.5.0 — 2026-10-29
+
+**Upgrade note.** Each folder now has an exposure level for AI assistants, default
+`masked`, and it is the ceiling: `--full` / `NETCONVERTER_MCP_VIEW=full` widen the view
+only after `netconverter privacy level full` (confirmed in a terminal); `--strict` means
+masked. `connect` no longer writes `--strict`; run `netconverter connect <client>` again
+to drop it.
+
+- New: guided mapping from your AI assistant. The bridge offers the server's
+  `get_mapping_questions`, `validate_mapping` and `apply_mapping_answers`: decision-only
+  questions (zones, interfaces, conversion options) where every configuration name is a
+  token, answers checked before anything changes, and a new conversion queued only after
+  you confirm it in the assistant's own dialog. Not available at level `none`.
+- New: `netconverter privacy level none|masked|selected|full` and `privacy status`.
+  Raising a level needs a confirmation typed in a terminal; every change is audited in
+  `.netconverter/privacy-audit.jsonl`; no MCP tool can change it. The bridge sends the
+  level on every request and filters every result to it; secrets (PSKs, SNMP communities,
+  hashes, passwords) are removed at every level.
+- New: `netconverter privacy apply --client claude-code|cursor|gemini|codex|openclaw`
+  keeps an assistant's own file tools out of the folder (diff, yes, `.bak`, idempotent;
+  codex and openclaw print the settings).
+- New: headless sign-in survives a reboot. Where no OS keyring is reachable (SSH,
+  containers), the sign-in and stored keys go to a passphrase-encrypted file (AES-256-GCM,
+  scrypt, mode 0600). Choose it with `login --store file` or
+  `NETCONVERTER_CREDENTIAL_STORE`; the passphrase comes from
+  `NETCONVERTER_CREDENTIAL_PASSPHRASE` or `…_PASSPHRASE_FILE`. `login` and `whoami` name
+  the store; the threat model is in docs/PRIVACY.md. Adds the `cryptography` dependency.
+- App: on the full API, `/convert` offers the Advanced and Zone mapping screens after the
+  target, sent as a YAML v2 document.
+- Bridge: `outputSchema` for every local tool; MCP prompts `guided-migration` and
+  `mapping-review`; `submit_file` asks for upload confirmation in the assistant's own
+  dialog when it supports elicitation (a decline sends nothing).
+- `connect gemini` writes an `env` block so Gemini no longer strips the NetConverter
+  variables, and says to trust the folder; `connect codex` forwards them with `env_vars`.
+  New `connect devin` (Devin Desktop, formerly Windsurf; `windsurf` is kept for the legacy
+  Cascade agent). Claude Desktop on Linux gets the manual Edit Config step.
+- docs/connect/compatibility.md: each client's config path and format, checked against
+  vendor docs on 2026-10-29.
+
 ## 0.4.4 — 2026-10-29
 
 **License change.** From 0.4.4 the client is licensed by ValeronLabs LLC for use with
