@@ -176,13 +176,18 @@ def whoami(args):
 
 
 MCP_AUTH_MODES = ("auto", "clerk", "key")
-MCP_VIEWS = ("strict", "full")
+# Exposure levels (#13) plus the 0.4.x name strict (= masked).
+MCP_VIEWS = ("none", "masked", "selected", "full", "strict")
 
 
-def mcp_view_default() -> str:
-    """`mcp` view default (#11): strict unless the user's NETCONVERTER_MCP_VIEW=full asks for more."""
+def mcp_view_default() -> str | None:
+    """`mcp --level` default: NETCONVERTER_MCP_VIEW when it names a level, else None (the folder's level).
+
+    A flag or the variable can only lower the folder's level for one process (#13);
+    the folder's level itself changes only with `netconverter privacy level`.
+    """
     value = os.getenv("NETCONVERTER_MCP_VIEW", "")
-    return value if value in MCP_VIEWS else "strict"
+    return value if value in MCP_VIEWS else None
 
 
 def mcp_auth_default() -> str:
@@ -260,24 +265,58 @@ def run_mcp(args):
     for note in notes:
         print(f"netconverter mcp: {note}", file=sys.stderr)
     guided = bool(getattr(args, "guided", False))
-    strict = getattr(args, "view", "strict") != "full" or guided
+    cap, effective = mcp_exposure(args, guided)
+    strict = effective.strict
     if not strict:
-        print("netconverter mcp: full view (--full): the assistant can call every allowlisted remote "
-              "tool, and results show this tenant's own addresses and names", file=sys.stderr)
+        print("netconverter mcp: full view (exposure level full): the assistant can call every allowlisted "
+              "remote tool, and results show this tenant's own addresses and names", file=sys.stderr)
     remote = None
     if remote_credential is not None and not args.no_remote and not guided:
-        # --strict asks the server for its strict view on every request (#15).
-        remote = RemoteMCP(mcp_url, remote_credential, client_version=__version__,
-                           **({"view_mode": "strict"} if strict else {}))
+        # The level goes to the server on every request; it applies min(grant, level) (#13, #15).
+        remote = RemoteMCP(mcp_url, remote_credential, client_version=__version__, view_mode=effective.level)
     try:
         options = {"guided": True} if guided else {}
         if rest is None:  # a sign-in made after start is used on the next call, no restart (#21)
             options["credential_loader"] = lambda: choose_mcp_credential(args.auth, args.server, mcp_url)
         run_stdio(Bridge(args.workspace, args.server, rest, remote, strict=strict,
-                         credential_source=source, **options))
+                         credential_source=source, level=cap.level, sections=cap.sections,
+                         workspace_level=True, **options))
     finally:
         if remote:
             remote.close()
+
+
+def mcp_exposure(args, guided: bool):
+    """(cap, effective) exposure for `netconverter mcp` (#13; docs/PRIVACY.md § Exposure levels).
+
+    The folder's level (`netconverter privacy level`, default masked) is the most
+    the bridge serves. --level/--strict/--full, else NETCONVERTER_MCP_VIEW, can only
+    lower it for this process. Guided mode serves at most masked and needs more than none.
+    """
+    from . import exposure
+
+    root = Path(args.workspace or ".")
+    folder = exposure.load(root)
+    requested = getattr(args, "view", None)
+    if requested:
+        level = exposure.normalize(requested)
+        # A requested `selected` keeps the folder's own sections.
+        cap = exposure.Exposure(level, tuple(exposure.SECTIONS) if level == "selected" else ())
+    else:
+        cap = exposure.Exposure("full")
+    effective = exposure.lower(folder, cap)
+    if guided:
+        if effective.level == "none":
+            raise CommandError("netconverter mcp --guided needs exposure level masked or higher; this folder "
+                               "is at none (`netconverter privacy level masked`).", EXIT_USAGE)
+        effective = exposure.lower(effective, exposure.Exposure("masked"))
+    if requested and exposure.is_raise(folder, cap) and cap.level != "selected":
+        print(f"netconverter mcp: --level {cap.level} asks for more than this folder allows "
+              f"({folder.describe()}); raise it in a terminal with `netconverter privacy level {cap.level}`",
+              file=sys.stderr)
+    print(f"netconverter mcp: exposure level {effective.describe()} (this folder: {folder.describe()})",
+          file=sys.stderr)
+    return cap, effective
 
 
 def check_source_vendor(vendor: str, catalog) -> None:
@@ -555,13 +594,15 @@ def parser():
     mcp.add_argument("--no-remote", action="store_true", help="serve only the local file tools")
     mcp.add_argument("--guided", action="store_true",
                      help="revisioned draft tools with human approval; requires server capability")
-    mcp.add_argument("--view", choices=list(MCP_VIEWS), default=mcp_view_default(),
-                     help="strict (the default: summaries, names as tokens) or full; "
+    mcp.add_argument("--level", "--view", dest="view", choices=list(MCP_VIEWS), default=mcp_view_default(),
+                     metavar="LEVEL",
+                     help="lower this folder's exposure level for this process: none, masked, selected or "
+                          "full (strict = masked); never above `netconverter privacy level`; "
                           "default from NETCONVERTER_MCP_VIEW")
     mcp.add_argument("--strict", dest="view", action="store_const", const="strict",
-                     help="the strict view (the default)")
+                     help="at most masked (the strict view)")
     mcp.add_argument("--full", dest="view", action="store_const", const="full",
-                     help="the wider view: every allowlisted remote tool; needs this explicit choice")
+                     help="up to full, when this folder's level is full")
     mcp.add_argument("--workspace", default=argparse.SUPPRESS, help="folder the file tools may read and write")
     from .connect import CLIENTS as _AI_CLIENTS
     connect = subs.add_parser(
@@ -581,6 +622,8 @@ def parser():
     add_draft_parser(subs)
     from .project_cli import add_parser as add_project_parser
     add_project_parser(subs)
+    from .privacy_cli import add_parser as add_privacy_parser
+    add_privacy_parser(subs)
     subs.add_parser("setup", help="first-run setup: connect to NetConverter and, optionally, a model")
     subs.add_parser("jobs", help="list your NetConverter jobs")
     from .one_shot import add_flags as add_output_flags
@@ -651,6 +694,10 @@ def _main(argv=None):
         return
     license_.ensure(args.command, interactive=sys.stdin.isatty() and sys.stdout.isatty())
     resolve_workspace(args)
+    if args.command == "privacy":  # terminal only: never reachable from the bridge (#13)
+        from .privacy_cli import run as run_privacy
+
+        raise SystemExit(run_privacy(args))
     if args.command == "update":
         from . import update
 

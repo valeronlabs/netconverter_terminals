@@ -34,9 +34,10 @@ def executable() -> str:
 
 
 def _args(root: Path) -> list[str]:
-    # Strict view, written explicitly for every client (#11): an environment that
-    # sets NETCONVERTER_MCP_VIEW=full cannot widen what a connected assistant sees.
-    return ["mcp", "--workspace", str(root), "--strict"]
+    # No view flag (#13): the folder's exposure level (`netconverter privacy level`,
+    # default masked) governs, and no flag or environment variable can raise it.
+    # 0.4.4 wrote --strict, which would hold a connected assistant at masked.
+    return ["mcp", "--workspace", str(root)]
 
 
 def _program(command) -> str:

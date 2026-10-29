@@ -214,7 +214,7 @@ def _interactive() -> bool:
         return False
 
 
-def set_level(root, level, sections=None, *, interactive=None, ask=input, user=None):
+def set_level(root, level, sections=None, *, interactive=None, ask=None, user=None):
     """Change the workspace level; returns (old, new). Raising needs a typed confirmation in a TTY."""
     new = Exposure(normalize(level), tuple(sections or ()))
     if sections and new.level != "selected":
@@ -229,7 +229,7 @@ def set_level(root, level, sections=None, *, interactive=None, ask=input, user=N
                 f"Raising the exposure level ({old.describe()} → {new.describe()}) needs a confirmation "
                 "typed in a terminal; it cannot be done from a script, a pipe or an AI assistant.")
         phrase = f"raise to {new.level}"
-        answer = ask(f"The assistant will see more of this folder's job results ({old.describe()} → "
+        answer = (ask or input)(f"The assistant will see more of this folder's job results ({old.describe()} → "
                      f"{new.describe()}). Type \"{phrase}\" to confirm: ")
         if str(answer or "").strip().lower() != phrase:
             raise ExposureError(f"Raise not confirmed; the level stays {old.describe()}.")

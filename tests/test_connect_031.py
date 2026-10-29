@@ -42,7 +42,7 @@ def test_json_clients_merge_and_keep_other_keys(home, key, rel):
     change.apply()
     data = json.loads(path.read_text())
     assert data["theme"] == "dark" and data["mcpServers"]["other"] == {"command": "x"}
-    assert data["mcpServers"]["netconverter"]["args"] == ["mcp", "--workspace", str(work.resolve()), "--strict"]
+    assert data["mcpServers"]["netconverter"]["args"] == ["mcp", "--workspace", str(work.resolve())]
     assert path.with_name(path.name + ".bak").exists()
     assert connect.CLIENTS[key].configured()
 

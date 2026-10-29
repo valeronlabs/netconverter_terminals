@@ -150,7 +150,7 @@ def test_tools_list_then_strict_call_asks_get_account_once(tmp_path):
     assert server.calls().count("get_account") == 1
 
 
-def test_mcp_strict_hands_the_strict_view_request_to_the_remote_client(monkeypatch):
+def test_mcp_strict_hands_the_strict_view_request_to_the_remote_client(monkeypatch, tmp_path):
     from netconverter_cli import cli, mcp_server, remote_mcp
 
     seen = {}
@@ -168,12 +168,17 @@ def test_mcp_strict_hands_the_strict_view_request_to_the_remote_client(monkeypat
     monkeypatch.setattr(remote_mcp, "RemoteMCP", FakeRemote)
     monkeypatch.setattr(mcp_server, "Bridge", lambda ws, server, rest, remote, **kw: seen.setdefault("strict", kw["strict"]))
     monkeypatch.setattr(mcp_server, "run_stdio", lambda bridge: None)
-    cli.run_mcp(cli.parser().parse_args(["--server", "https://api.netconverter.ai/external/v1", "mcp", "--strict"]))
-    assert seen == {"view_mode": "strict", "strict": True}
+    base = ["--server", "https://api.netconverter.ai/external/v1", "--workspace", str(tmp_path)]
+    cli.run_mcp(cli.parser().parse_args([*base, "mcp", "--strict"]))
+    # #13: the header carries the exposure level; masked is the server's strict view.
+    assert seen == {"view_mode": "masked", "strict": True}
     seen.clear()
-    # #11: strict is the default; the wider view needs --full.
-    cli.run_mcp(cli.parser().parse_args(["--server", "https://api.netconverter.ai/external/v1", "mcp"]))
-    assert seen == {"view_mode": "strict", "strict": True}
+    # #11: strict is the default; #13: the folder's level (default masked) governs.
+    cli.run_mcp(cli.parser().parse_args([*base, "mcp"]))
+    assert seen == {"view_mode": "masked", "strict": True}
     seen.clear()
-    cli.run_mcp(cli.parser().parse_args(["--server", "https://api.netconverter.ai/external/v1", "mcp", "--full"]))
-    assert seen == {"view_mode": None, "strict": False}
+    from netconverter_cli import exposure
+
+    exposure.set_level(tmp_path, "full", interactive=True, ask=lambda prompt: "raise to full")
+    cli.run_mcp(cli.parser().parse_args([*base, "mcp", "--full"]))
+    assert seen == {"view_mode": "full", "strict": False}

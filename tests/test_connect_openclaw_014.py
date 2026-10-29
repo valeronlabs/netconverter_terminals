@@ -34,7 +34,7 @@ def runs(monkeypatch):
 
 def add_argv(work):
     return ["/usr/local/bin/openclaw", "mcp", "add", "netconverter", "--command", EXE,
-            "--arg", "mcp", "--arg", "--workspace", "--arg", str(work.resolve()), "--arg", "--strict"]
+            "--arg", "mcp", "--arg", "--workspace", "--arg", str(work.resolve())]
 
 
 def write_config(home_dir, entry):
@@ -55,7 +55,7 @@ def test_plan_shows_the_command_and_applies_add_then_probe(home, runs):
     _, work = home
     change = connect.plan("openclaw", work)
     assert change.can_apply and runs == []  # planning runs nothing
-    assert "openclaw mcp add netconverter --command" in change.preview and "--strict" in change.preview
+    assert "openclaw mcp add netconverter --command" in change.preview and "--strict" not in change.preview  # #13: the folder level governs
     message = change.apply()
     assert runs == [add_argv(work), ["/usr/local/bin/openclaw", "mcp", "doctor", "netconverter", "--probe"]]
     assert "5 tools" in message
@@ -65,7 +65,7 @@ def test_plan_shows_the_command_and_applies_add_then_probe(home, runs):
 
 def test_already_connected_is_a_no_op(home, runs):
     home_dir, work = home
-    write_config(home_dir, {"command": EXE, "args": ["mcp", "--workspace", str(work.resolve()), "--strict"]})
+    write_config(home_dir, {"command": EXE, "args": ["mcp", "--workspace", str(work.resolve())]})
     assert connect.CLIENTS["openclaw"].configured()
     change = connect.plan("openclaw", work)
     assert not change.can_apply and "already" in change.summary
@@ -84,7 +84,7 @@ def test_a_different_entry_is_replaced_via_unset_then_add(home, runs):
 
 def test_remove_path(home, runs):
     home_dir, work = home
-    write_config(home_dir, {"command": EXE, "args": ["mcp", "--workspace", str(work.resolve()), "--strict"]})
+    write_config(home_dir, {"command": EXE, "args": ["mcp", "--workspace", str(work.resolve())]})
     change = connect.plan_remove("openclaw", work)
     assert change.can_apply and "openclaw mcp unset netconverter" in change.preview
     change.apply()
@@ -107,7 +107,7 @@ def test_without_openclaw_on_path_prints_the_json5_block(home, monkeypatch):
     change = connect.plan("openclaw", work)
     assert not change.can_apply
     assert "mcp: {" in change.preview and "servers: {" in change.preview and "netconverter: {" in change.preview
-    assert '"--strict"' in change.preview and "openclaw.json" in change.manual
+    assert '"--strict"' not in change.preview and "openclaw.json" in change.manual
 
 
 def args(work, **kw):
@@ -121,7 +121,7 @@ def test_cli_asks_before_applying_and_removes_with_remove(home, runs, capsys):
     assert runs == [] and "Nothing was changed" in capsys.readouterr().out
     cli.run_connect(args(work), ask=lambda prompt: "y")
     assert runs[0] == add_argv(work)
-    write_config(home_dir, {"command": EXE, "args": ["mcp", "--workspace", str(work.resolve()), "--strict"]})
+    write_config(home_dir, {"command": EXE, "args": ["mcp", "--workspace", str(work.resolve())]})
     runs.clear()
     cli.run_connect(args(work, remove=True), ask=lambda prompt: "y")
     assert runs == [["/usr/local/bin/openclaw", "mcp", "unset", "netconverter"]]

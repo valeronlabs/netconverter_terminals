@@ -381,13 +381,13 @@ def test_strict_mode_proxies_only_the_strict_set(workspace):
     assert bridge.call("get_account", {})["isError"] is False
 
 
-# #11 made strict the default: no flag (or NETCONVERTER_MCP_STRICT=0) is strict now,
-# and only --full / --view full / NETCONVERTER_MCP_VIEW=full widens it.
+# #11 made strict the default; #13: no flag means the folder's exposure level
+# (default masked), and NETCONVERTER_MCP_STRICT does nothing.
 @pytest.mark.parametrize("argv,env,expected", [
-    (["mcp"], {}, "strict"),
+    (["mcp"], {}, None),
     (["mcp", "--strict"], {}, "strict"),
-    (["mcp"], {"NETCONVERTER_MCP_STRICT": "1"}, "strict"),
-    (["mcp"], {"NETCONVERTER_MCP_STRICT": "0"}, "strict"),
+    (["mcp"], {"NETCONVERTER_MCP_STRICT": "1"}, None),
+    (["mcp"], {"NETCONVERTER_MCP_STRICT": "0"}, None),
     (["mcp", "--full"], {}, "full"),
 ])
 def test_strict_flag_and_environment(monkeypatch, argv, env, expected):
