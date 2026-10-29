@@ -53,7 +53,8 @@ def test_codex_forwards_the_bridge_variables(home):
     change = connect.plan("codex", work)
     change.apply()
     table = tomllib.loads((home_dir / ".codex" / "config.toml").read_text())["mcp_servers"]["netconverter"]
-    assert table["args"][-1] == "--strict"
+    # 0.5.0: no view flag; the folder's privacy level (#13) is the ceiling
+    assert table["args"][:2] == ["mcp", "--workspace"] and "--strict" not in table["args"]
     assert {"NETCONVERTER_API_KEY", "NETCONVERTER_CREDENTIAL_PASSPHRASE",
             "DBUS_SESSION_BUS_ADDRESS"} <= set(table["env_vars"])
 
@@ -66,7 +67,7 @@ def test_devin_desktop_uses_the_devin_cli_config(home, monkeypatch):
     assert change.where == str(path)
     change.apply()
     entry = json.loads(path.read_text())["mcpServers"]["netconverter"]
-    assert entry["args"] == ["mcp", "--workspace", str(work.resolve()), "--strict"]
+    assert entry["args"] == ["mcp", "--workspace", str(work.resolve())]  # no view flag (#13)
     assert connect.CLIENTS["devin"].configured()
     monkeypatch.setenv("XDG_CONFIG_HOME", str(home_dir / "xdg"))
     assert connect.plan("devin", work).where == str(home_dir / "xdg" / "devin" / "mcp_config.json")
