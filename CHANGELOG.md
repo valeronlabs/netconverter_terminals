@@ -1,6 +1,46 @@
 # Changelog
 
-## Unreleased
+## 0.4.4 — 2026-10-29
+
+**License change.** From 0.4.4 the client is licensed by ValeronLabs LLC for use with
+your NetConverter account only; it may not be redistributed or modified (see LICENSE).
+Versions up to 0.4.3 were MIT licensed. On first run the client shows the license and
+asks you to type `accept`; scripts and containers use `netconverter license accept --yes`
+or `NETCONVERTER_ACCEPT_LICENSE=1`. Until it is accepted, `netconverter mcp` answers every
+tool call with how to accept it.
+
+**Upgrade note.** `netconverter mcp` now serves the strict view by default; add `--full`
+(or set `NETCONVERTER_MCP_VIEW=full`) if you relied on the wider view. `connect` writes
+`--strict` for every assistant. Errors now go to stderr with distinct exit codes.
+
+- New: `netconverter walkthrough` and `/walkthrough`, a short guided tour of jobs, privacy
+  and AI integrations.
+- New: `netconverter license` (`show`, `accept`, `status`).
+- `connect` leaves one NetConverter server per assistant: it removes older bridge entries
+  and direct `api.netconverter.ai` entries (which NetConverter now refuses) from Cursor,
+  Claude Desktop, Gemini CLI, Windsurf and LM Studio, keeping every other server.
+- New: `netconverter connect openclaw` (with `--remove`).
+- convert / validate / optimize / resume print a short plain summary (verdict ready /
+  needs review / blocked, counts, first findings, next command); `--json` gives the raw
+  response and `--all` lists every finding. The app's job card shows a scorecard.
+- `netconverter query unparsed_lines` (app: `/unparsed_lines`) lists unparsed lines.
+- Job options are checked against a typed allowlist before upload; unknown keys and
+  request fields are refused by name. Guided conversion settings reach the full API as a
+  YAML v2 document instead of being silently ignored.
+- `job_status` and `wait_for_job` report the job stage.
+- Ctrl-C prints "Cancelled. Nothing was saved." and exits 130. Errors give the specific
+  reason (file, `--options`, the server's reason); exit codes 2 usage, 3 sign-in, 4 input,
+  5 server (docs/COMMANDS.md). A 403 says what your credential is missing.
+- A locked system keyring is reported after 5 s instead of hanging
+  (`NETCONVERTER_KEYRING_TIMEOUT_S`); one signed-out message everywhere.
+- Help text for every command and option, "Did you mean …?" for typos, valid vendor
+  codes when `--vendor` is missing, `--to` only on `convert`.
+- App: `/refresh` (`/allowance` still works), the /help footer, `/ls` titles use `~/`.
+- `update --check` prints a plain line (`--json` for JSON); one-shot JSON keeps "→".
+- Auto-detect: Cisco switches no longer read as ArubaOS; IOS-XE switch vs router from the
+  content; NX-OS and SRX reported as unsupported.
+- Bridge: clearer options-size refusal, `account` reports a signed-out status, and
+  signing in works without restarting the bridge.
 
 - **Candidate multi-device project adapters (development preview).** New `project`
   commands and capability-gated guided MCP tools use generated server schemas,
