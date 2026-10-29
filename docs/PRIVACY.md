@@ -37,20 +37,56 @@ The bridge offers its local tools (`submit_file`, `job_status`, `wait_for_job`,
 `account`, `download`) and proxies NetConverter's remote tools only from a fixed
 client-side allowlist of read tools. A tool the server adds later is not offered
 until a client release lists it, and a remote tool named `submit_*` is never
-proxied. By default (since 0.5.0) `netconverter mcp` serves the **strict view**, and
-`netconverter connect` writes `--strict` for every assistant; the wider view needs an
-explicit `netconverter mcp --full` (or `NETCONVERTER_MCP_VIEW=full`). The strict view narrows the
-remote tools to the strict-view set (job list and selection, account, search and
-fetch, knowledge base, vendor capabilities, job brief, evidence, report), whatever
-the server advertises, and asks the server for its strict view on every request
-(`X-NetConverter-View: strict`; a session can only lower the grant's view). Under
-the server's strict view mode, names in results arrive as `<name:…>` tokens. While
-the server is not applying it, the bridge refuses the configuration-content calls
-(`unparsed_lines`, `focus=target`, non-`kb:` fetch) and masks every address in
-remote results as `<ip>`/`<cidr>` itself; names in summaries are not tokenised
-locally, and `account.strict_enforced_by` says which side is enforcing. `account`
+proxied.
+
+### Exposure levels
+
+You choose how much of a job's results an assistant sees, per workspace folder
+(`netconverter privacy level`, default **masked**):
+
+- **none**: verdicts, statuses, counts and ids only. The bridge removes every other value from
+  every result and withholds non-JSON text.
+- **masked**: the server's strict view (names arrive as `<name:…>` tokens) and the strict tool set
+  (job list and selection, account, search and fetch, knowledge base, vendor capabilities, job
+  brief, evidence, report). The bridge also refuses the configuration-content calls
+  (`unparsed_lines`, `focus=target`, non-`kb:` fetch) and masks every address as `<ip>`/`<cidr>`.
+  Names are tokenised only by the server's strict view, not locally; `account.strict_enforced_by`
+  says whether the server or only the bridge is enforcing it.
+- **selected**: masked, plus the sections you chose (`--sections nat,routes`, …), which add their
+  summary tools or lift one of those refusals. Results stay masked; the server serves this level as
+  its strict view until per-section un-tokenising ships.
+- **full**: the results as the server serves them for your account (0.4.x `--full`).
+
+At **every** level the bridge strips secrets client-side: values of keys such as `psk`,
+`password`, `community`, `*_hash`, configuration syntax such as `pre-shared-key X`,
+`snmp-server community X`, `password 7 X`, `secret 5 X`, and crypt/`ENC`/`-AQ==` hashes become
+`<secret>`. This is defence in depth over the server's own view; it is pattern-based and does not
+replace the server's handling.
+
+The bridge sends the level as `X-NetConverter-View` on every remote request; the server applies
+min(your grant, the level), so a session can only lower what the tenant's grant allows, and
+`account` reports `exposure_level`, the server's `view_mode` and, when sent, `view_mode_grant`
+and `view_clamped`. The level is re-read on every call, so lowering it takes effect at once.
+
+**Raising the level requires typing `raise to LEVEL` in a terminal.** `netconverter privacy level`
+refuses a raise when stdin or stdout is not a terminal, so no script, pipe, MCP tool or model can
+raise it; lowering works anywhere. Every change is appended to
+`.netconverter/privacy-audit.jsonl` (time, old → new, sections, OS user, folder, `tty` or
+`not_needed`). A `privacy.json` above masked without a matching typed raise in that log is ignored
+(the bridge uses masked and says so). The `.netconverter` folder is never a source or destination
+for any bridge tool, so neither file is reachable through MCP.
+
+**Flags and precedence.** The folder's level is the ceiling. `netconverter mcp --level LEVEL`,
+`--strict` (= masked), `--full` (= full) or `NETCONVERTER_MCP_VIEW` can only lower it for one bridge
+process (a flag beats the variable); `--full` therefore widens the view only after
+`netconverter privacy level full`. `--guided` serves at most masked and refuses `none`.
+`netconverter connect` writes no view flag (0.4.4 wrote `--strict`; reconnect to drop it).
+**Upgrade note (0.5.0):** an assistant that relied on `--full` now gets masked until you raise the
+folder's level in a terminal.
+
+The `account` tool
 returns only tier, job types, rate limit, daily quota, auth kind, credential source,
-view mode and client version facts: no tokens, e-mail addresses, key hints or
+exposure level, view mode and client version facts: no tokens, e-mail addresses, key hints or
 tenant IDs. `job_status` and `wait_for_job` (and its progress messages) carry an
 allowlisted status and percentage plus the stage: the server's fixed-vocabulary
 `stage_key` when it sends one, otherwise its progress text made single-line,
@@ -60,23 +96,37 @@ internal id (for example "Stored to corpus (ID: …)") is reported as `storing`.
 `submit_file` accepts job `options` only from a fixed, typed allowlist (its schema
 lists every key). The file, vendors, job type, `technology`, and any decisions document
 (`yaml_v2`, `yaml`, `manual_mappings`) can never come from options, and an unknown key
-is refused naming it before anything is uploaded. **Upgrade note (0.5.0):** an
-assistant set up for the old default (full) view now gets the strict view; add `--full`
-to its `netconverter mcp` command only if you want it to see the wider set.
+is refused naming it before anything is uploaded.
 
 ### Keep the assistant out of the files
 
 The bridge uploads a configuration by **path**: it reads the file itself and sends
 it to NetConverter, so the assistant never needs the file's text. An assistant
 with its own file tools could still open the file and place its contents in the
-model conversation. For Claude Code, `netconverter connect claude-code` therefore
-offers (default yes) a deny rule `Read(//<folder>/**)` in the user-scope
-`~/.claude/settings.json` (`//` is Claude Code's absolute-path form), merged with
-your existing `permissions.deny` entries after a `.bak` copy. It also keeps
-Claude Code from reading the reports the bridge downloads into that folder; open
-those yourself. The rule governs Claude Code's file-read tools. It does not stop
-a shell command you approve. Other assistants, including Claude Desktop with a
-file-access extension, need their own settings; review what you allow.
+model conversation (tester MCP-C4: every client except Claude Desktop can, when the
+folder is in reach). `netconverter privacy apply --client CLIENT` sets the client's own
+deny rules for the folder; it shows a diff, applies only after yes, keeps a `.bak`, and a
+second run changes nothing:
+
+- **Claude Code**: `Read(//<folder>/**)` and `Edit(//<folder>/**)` in the user-scope
+  `~/.claude/settings.json` `permissions.deny` (`//` is Claude Code's absolute-path form).
+  `netconverter connect claude-code` also offers the Read rule (default yes). Its Bash tool is not
+  covered: keep it on ask, or add `Bash(cat:*)` yourself (that blocks `cat` everywhere).
+- **Cursor CLI**: `Read(<folder>/**)` and `Write(<folder>/**)` in `~/.cursor/cli-config.json`
+  `permissions.deny`; add the folder to the opened project's `.cursorignore` if it sits inside it.
+- **Gemini CLI**: `~/.gemini/policies/netconverter-<id>.toml` denies `read_file`,
+  `read_many_files`, `write_file`, `replace`, `glob`, `list_directory`, the search tools and
+  `run_shell_command` any argument naming the folder; add it to `.geminiignore` too.
+- **Codex** (printed, not applied): a permission profile with `"<folder>" = "deny"` made active
+  by `default_permissions`; it replaces your active sandbox profile, so you add it.
+- **OpenClaw** (printed, not applied): an agent workspace other than the folder,
+  `tools.deny: ["read", "exec"]`, `tools.fs.workspaceOnly: true`, `sandbox.workspaceAccess: "none"`.
+
+Deny rules also keep the client from reading the reports the bridge downloads into that folder;
+open those yourself. Start each client outside the folder: one started in it or a parent folder
+reaches the files through its project tools. These settings govern the client's own tools; they
+do not stop a shell command you approve, and the tests prove the files written, not each live
+client's enforcement.
 
 ## Tools and files
 

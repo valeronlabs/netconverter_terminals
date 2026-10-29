@@ -114,11 +114,57 @@ netconverter connect claude-desktop      # merge into claude_desktop_config.json
 netconverter connect --all               # every assistant found on this computer, one prompt each
 netconverter connect chatgpt             # ChatGPT / claude.ai: prints remote-connector setup steps
 netconverter mcp --workspace ~/migrations   # what an assistant runs; not for interactive use
-netconverter mcp --full --workspace ~/migrations     # the wider view (strict is the default)
+netconverter mcp --level none --workspace ~/migrations   # lower this folder's level for one bridge
+netconverter privacy status              # this folder's exposure level, what each level shows, recent changes
+netconverter privacy level none          # verdicts and counts only (lowering needs no confirmation)
+netconverter privacy level full          # raising asks you to type "raise to full" in a terminal
+netconverter privacy level selected --sections nat,routes   # masked plus chosen sections
+netconverter privacy apply --client claude-code   # deny the client's own file tools this folder (diff, then yes)
 netconverter update --check              # is a newer release published? (--json for JSON)
 netconverter update                      # verify and install it with uv, after a prompt
 netconverter update --yes                # same, without the prompt
 ```
+
+`connect` writes `netconverter mcp --workspace <folder>` with no view flag (0.4.4 wrote `--strict`): the
+folder's exposure level decides what the assistant sees. Run `connect` again to drop an old `--strict`,
+which would hold the assistant at masked after you raise the level.
+
+### Exposure levels (`privacy`)
+
+`netconverter privacy level LEVEL` sets what assistants connected to this folder may see; the
+setting lives in `.netconverter/privacy.json` and every change is appended to
+`.netconverter/privacy-audit.jsonl` (time, old → new, sections, user, folder, how it was confirmed).
+
+| Level | The assistant gets |
+| --- | --- |
+| `none` | Verdicts, statuses, counts and ids only; every other value is removed and non-JSON text is withheld |
+| `masked` (default) | The server's strict view (names as `<name:…>` tokens); addresses masked as `<ip>`/`<cidr>` by the bridge too; the strict tool set |
+| `selected` | `masked`, plus the sections chosen with `--sections`: `interfaces`, `routes`, `policy`, `nat`, `vpn`, `objects`, `management`, `translation` (their summary tools), `unparsed_lines` (`get_evidence section=unparsed_lines`), `target` (`get_job_brief focus=target`, `get_target_config`), `reports` (`fetch` of job ids). Results stay masked; the server serves this level as strict until per-section un-tokenising ships |
+| `full` | Results as the server serves them for your account (the 0.4.x `--full` view) |
+
+Secrets (pre-shared keys, SNMP communities, password hashes, passwords) are removed from every
+result at every level. Lowering works from scripts. Raising (a higher level, or adding a section)
+needs the phrase `raise to LEVEL` typed in a terminal; from a pipe, a script or the MCP bridge it is
+refused (exit 1). No MCP tool can read or change the level or its audit log.
+
+**Precedence.** (1) The folder's level is the most any bridge for the folder serves. (2) `mcp --level
+LEVEL` (alias `--view`), `--strict` (= masked) or `--full` (= full), else `NETCONVERTER_MCP_VIEW`, can
+only lower it for that process; a flag beats the variable, and asking for more prints how to raise
+the folder's level. (3) `--guided` serves at most masked and refuses `none`. (4) The bridge sends the
+result as `X-NetConverter-View` on every request and the server applies min(your grant, level):
+`none`/`masked`/`selected` as its strict view, `full` as its default view. Lowering the folder's
+level takes effect on a running bridge's next call; a raise needs the assistant to list tools again.
+
+`privacy apply --client CLIENT` keeps the client's own file tools out of the folder, so a
+configuration reaches the model only through the bridge: `claude-code` (`Read(//<folder>/**)` and
+`Edit(//<folder>/**)` in `~/.claude/settings.json`), `cursor` (`Read(<folder>/**)` and
+`Write(<folder>/**)` in `~/.cursor/cli-config.json`), `gemini` (a deny policy for its file and shell
+tools in `~/.gemini/policies/netconverter-<id>.toml`). Each shows a diff, applies after `y` (or
+`--yes`), keeps a `.bak` and changes nothing on a second run; `--print` only shows it. `codex`
+(a permission profile with `"<folder>" = "deny"`) and `openclaw` (`tools.deny`,
+`tools.fs.workspaceOnly`, `sandbox.workspaceAccess`) print the settings to add yourself, because
+they change the client's active profile or policy. Start every client outside the folder: one started
+in it or a parent can reach the files through its project tools.
 
 `connect` targets: `claude-code` (through `claude mcp add`, user scope; then offers
 a `Read(//<folder>/**)` deny rule in `~/.claude/settings.json`, default yes),
@@ -147,7 +193,7 @@ delays a command; its result is cached in your user cache folder.
 | `submit_file(path, source_vendor, target_vendor?, job_type?, options?)` | `job_id`, `status`, `sha256`, `bytes`. `job_type`: `convert`, `validate`, `optimize`, or `analyze` (= validate). `options` keys (typed; anything else is refused naming it): `selected_device_groups`, `file_name`, `optimization_options` (optimize), and for convert `zone_mapping`, `remove_unused_objects`, `enable_appid`, `app_id_implementation`, `add_security_profiles`, `log_all_rules`, `implicit_deny`, `panos_target_version` / `routing_engine` / `default_profile_group` (Palo Alto targets), `panorama_device_group` / `panorama_template` (Panorama), `pipeline_mode` (pilot keys). On the full API the convert settings travel as a `yaml_v2` decisions document |
 | `job_status(job_id)` | Status, verdict, review flag, progress and stage when sent, reason counts, vendors |
 | `wait_for_job(job_id, timeout_s=45)` | The `job_status` summary plus `waited_s` and `timed_out` (plus `next` when still running: call it again); polls 2 s, ×1.5, up to 15 s apart, at most 600 s. The default stays under the 60 s tool timeout of Codex and OpenClaw; pass a larger `timeout_s` only when the client allows it. Sends MCP progress notifications when the call has a progress token |
-| `account()` | Signed out: `status` (`signed_out`, `keyring_unreachable`), `signed_in: false`, `message`, `client_version`, `update_available`, `latest_version` (not an error). Signed in: `tier`, `job_types`, `rate_limit_per_min`, `daily_quota`, `auth_kind`, `profile`, `client_version`, `update_available`, `latest_version`, `strict_mode` (the `--strict` flag), `view_mode` (the view the server applies to this session, from `get_account`), `strict_enforced_by` (`server` when that view is strict, `client` while the bridge enforces it locally), `credential_source` (`clerk_session`, `api_key_environment`, `api_key_stored` or `none`; the one credential REST and the remote tools share) |
+| `account()` | Signed out: `status` (`signed_out`, `keyring_unreachable`), `signed_in: false`, `message`, `client_version`, `update_available`, `latest_version` (not an error). Signed in: `tier`, `job_types`, `rate_limit_per_min`, `daily_quota`, `auth_kind`, `profile`, `client_version`, `update_available`, `latest_version`, `strict_mode` (true below `full`), `exposure_level` and `exposure_sections` (the level in force, see Exposure levels), `view_mode_grant` and `view_clamped` when the server reports them, `view_mode` (the view the server applies to this session, from `get_account`), `strict_enforced_by` (`server` when that view is strict, `client` while the bridge enforces it locally), `credential_source` (`clerk_session`, `api_key_environment`, `api_key_stored` or `none`; the one credential REST and the remote tools share) |
 | `download(job_id, dest_dir=".")` | Saved file names, sizes and SHA-256 |
 
 Remote NetConverter tools are proxied only from a fixed allowlist, and never a
@@ -159,11 +205,12 @@ Remote NetConverter tools are proxied only from a fixed allowlist, and never a
 `get_unused_objects`, `get_vpn_summary`, `get_zone_summary`, `kb_explain`,
 `kb_search`, `list_jobs`, `list_objects_with_attribute`, `list_rules_matching`,
 `query_ir`, `search`, `select_job`, `simulate_flow`, `vendor_capability_lookup`.
-With the strict view (the default since 0.5.0; `--strict` names it explicitly, `--full` or
-`--view full` opts out): `list_jobs`, `select_job`, `get_account`, `search`, `fetch`,
+At levels `none`, `masked` and `selected` (the default is masked; `full` uses the default list):
+`list_jobs`, `select_job`, `get_account`, `search`, `fetch`,
 `kb_search`, `kb_explain`, `vendor_capability_lookup`, `get_job_brief`,
-`get_evidence`, `get_report`. A listed tool appears only if the server offers it.
-The strict view also asks the server for its strict view on every request (`X-NetConverter-View: strict`;
+`get_evidence`, `get_report`, plus the chosen sections' tools under `selected`. A listed tool appears
+only if the server offers it.
+The bridge sends the level on every request (`X-NetConverter-View: none|masked|selected|full`;
 the server may only lower the grant's view, never raise it) and reads the view in force from
 `get_account`. Until the server applies it, the bridge enforces strict locally: it refuses
 `get_evidence section=unparsed_lines`, `get_job_brief focus=target` and any `fetch` that is not
@@ -175,8 +222,8 @@ Global options go before the subcommand: `netconverter --workspace DIR --server 
 Environment: `NETCONVERTER_URL`, `NETCONVERTER_PROVIDER`, `NETCONVERTER_MODEL`,
 `NETCONVERTER_AUTH=key` or `=clerk` (force one credential; unset, plain commands use a stored key first, then
 your sign-in, while `mcp` prefers the sign-in and says on stderr which API key it leaves unused;
-`NETCONVERTER_MCP_AUTH` overrides it for `mcp` only), `NETCONVERTER_TRUSTED_HOSTS`, `NETCONVERTER_MCP_VIEW=full` (same as `mcp --full`; strict is the default, and an
-explicit `--strict` wins),
+`NETCONVERTER_MCP_AUTH` overrides it for `mcp` only), `NETCONVERTER_TRUSTED_HOSTS`, `NETCONVERTER_MCP_VIEW=none|masked|selected|full|strict` (same as `mcp --level`; it can only lower
+the folder's exposure level, and an explicit flag wins),
 `NETCONVERTER_NO_UPDATE_CHECK=1` (no daily update check or notice; `account` then reports
 `update_available: null`), `NETCONVERTER_KEYRING_TIMEOUT_S` (how long to wait for the OS keyring
 before reporting it locked; default 5).
@@ -224,7 +271,7 @@ file is reported as a missing file, never as "not signed in".
 | Full-screen UI unsuitable | Use `netconverter plain` or individual CLI commands |
 | "Your system keyring is locked" (exit 3) | The OS keyring did not answer within 5 seconds (a locked Secret Service collection after a reboot, or a keychain waiting for a password). Unlock it (for example by logging in to the desktop session), or sign in again with `netconverter login` |
 | `keyring_unreachable` from the bridge (Linux) | The assistant launched `netconverter mcp` without `DBUS_SESSION_BUS_ADDRESS`; the bridge tries `$XDG_RUNTIME_DIR/bus` and `/run/user/<uid>/bus`, else set that variable (or `NETCONVERTER_API_KEY`) in the assistant's MCP server environment and restart it |
-| Assistant cannot see a NetConverter tool | The bridge lists only allowlisted remote tools the server offers (fewer with `--strict`); update the client with `netconverter update` |
+| Assistant cannot see a NetConverter tool | The bridge lists only allowlisted remote tools the server offers (fewer below `full`; `netconverter privacy status` shows the level); update the client with `netconverter update` |
 | `netconverter update` says uv is not on PATH | Install uv, or follow the printed download, `shasum -a 256 -c SHA256SUMS` and `uv tool install --force` steps |
 
 Use the server job ID and client version when asking for help. Do not attach
