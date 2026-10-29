@@ -225,7 +225,7 @@ class ExternalClient(Client):
     """
 
     _ALLOWED = re.compile(
-        r"(?:me|capabilities|jobs|jobs/[A-Za-z0-9_-]{1,80}(?:/translated|/report|/evidence\.xlsx)?)\Z"
+        r"(?:me|capabilities|jobs|jobs/[A-Za-z0-9_-]{1,80}(?:/translated|/report|/evidence\.xlsx|/findings\.sarif)?)\Z"
     )
 
     def me(self):
@@ -249,6 +249,16 @@ class ExternalClient(Client):
         if response.is_error:
             raise self._error(response, request_id)
         return response.content
+
+    def findings(self, job_id: str):
+        """Every finding of a completed validate/optimize job (SARIF 2.1.0 JSON)."""
+        response, request_id = self._send("GET", f"jobs/{self.identifier(job_id)}/findings.sarif")
+        if response.is_error:
+            raise self._error(response, request_id)
+        try:
+            return response.json()
+        except ValueError:
+            raise APIError(response.status_code, "invalid_response", request_id) from None
 
     def submit_job(self, body: dict, idempotency_key: str):
         return self.request("POST", "jobs", idempotency_key=idempotency_key, json=body)

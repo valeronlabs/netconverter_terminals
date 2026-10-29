@@ -1,0 +1,146 @@
+{
+  "job_id": "val_9f9acb9b5a59",
+  "source_vendor": "cisco_asa",
+  "target_vendor": "n/a",
+  "status": "completed",
+  "failure_reason": null,
+  "source_config_id": "val_9f9acb9b5a59:source",
+  "translated_config_id": null,
+  "translation_status": null,
+  "review_required": null,
+  "blocking_reasons": [],
+  "review_reasons": [],
+  "reasons_truncated": false,
+  "job_status": "completed",
+  "block_reason": null,
+  "blocking_stage": null,
+  "job_type": "validate",
+  "progress": 100,
+  "stage": "complete",
+  "stage_key": "complete",
+  "validation": {
+    "kind": "validation",
+    "confidence": 48,
+    "confidence_band": "unsafe-to-push",
+    "ready_for_conversion": false,
+    "not_ready_reasons": [
+      "2 blocking issues must be fixed before push",
+      "BC3 vacuous pass on 2 of 6 checks"
+    ],
+    "objects": 22,
+    "rules": 11,
+    "source_readiness": {
+      "applicable": true,
+      "checked": true,
+      "passed": false
+    },
+    "severity_scale": "optimizer_findings.by_severity and each optimizer row's severity use the validator UI's grades (critical/high/medium/low/info). blocker/error/warning/info are count buckets.",
+    "validation_issues": {
+      "blocker": 2,
+      "error": 0,
+      "warning": 1,
+      "info": 0,
+      "blocking": 2,
+      "total": 3,
+      "likely_false_positive": 0,
+      "by_type": {
+        "missing_reference": 2,
+        "unsupported_feature": 1
+      }
+    },
+    "optimizer_findings": {
+      "blocker": 0,
+      "error": 1,
+      "warning": 2,
+      "info": 0,
+      "by_severity": {
+        "critical": 0,
+        "high": 1,
+        "medium": 2,
+        "low": 0,
+        "info": 0
+      },
+      "total": 3,
+      "by_category": {
+        "security_posture": 1,
+        "overlapping_object": 2
+      }
+    },
+    "unused_objects": 0,
+    "parse_gaps": {
+      "unparsed_lines": 7,
+      "unparsed_percentage": 4.6,
+      "categories": 2
+    },
+    "top": [
+      {
+        "title": "Missing Reference: object group DMZ-SERVERS",
+        "kind": "missing_reference",
+        "severity": "blocker",
+        "source": "validation",
+        "bucket": "blocker",
+        "blocking": true
+      },
+      {
+        "title": "Missing Reference: service group WEB-PORTS (cp1)",
+        "kind": "missing_reference",
+        "severity": "blocker",
+        "source": "validation",
+        "bucket": "blocker",
+        "blocking": true
+      },
+      {
+        "title": "HTTP Management Exposed to Any Host",
+        "kind": "security_posture",
+        "severity": "high",
+        "bucket": "error",
+        "source": "optimizer"
+      },
+      {
+        "title": "Unsupported Feature: WCCP redirect in IR",
+        "kind": "unsupported_feature",
+        "severity": "warning",
+        "source": "validation",
+        "bucket": "warning",
+        "blocking": false
+      },
+      {
+        "title": "Overlapping Object Definitions (RAG confidence 80%)",
+        "kind": "overlapping_object",
+        "severity": "medium",
+        "bucket": "warning",
+        "source": "optimizer"
+      }
+    ],
+    "counts": {
+      "config_objects": 22,
+      "unused_policy_objects": 0,
+      "cp1_items_checked": 33,
+      "cp1_unreferenced_objects": 0
+    },
+    "count_labels": {
+      "config_objects": "Config objects",
+      "unused_policy_objects": "Unused address/service objects",
+      "cp1_items_checked": "CP1 items checked",
+      "cp1_unreferenced_objects": "Unreferenced address/service objects (CP1)"
+    },
+    "count_definitions": {
+      "config_objects": "Defined configuration objects: addresses, services and their groups, zones, interfaces."
+    },
+    "cp0": {
+      "status": "warning",
+      "categories": [
+        {
+          "category": "Unparsed lines",
+          "line_count": 7
+        }
+      ]
+    },
+    "cp1": {
+      "status": "passed",
+      "warnings": []
+    }
+  },
+  "ci_verdict": "blocked",
+  "ci_exit_code": 2
+}

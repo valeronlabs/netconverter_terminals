@@ -105,7 +105,15 @@ Then ask your assistant, for example: *"Validate edge-fw.conf and tell me what i
 
 Bridge tools: `submit_file`, `job_status`, `wait_for_job`, `account`, `download`,
 plus an allowlist of NetConverter's read-only tools (reports, evidence, NAT, flows,
-knowledge base). `netconverter mcp --strict` narrows those to the strict-view set.
+knowledge base). The bridge serves the **strict view** by default (summaries, names as
+tokens, no configuration content); `netconverter mcp --full` offers the wider set, and
+`connect` writes `--strict` for every assistant. Job `options` from an assistant pass an
+allowlist with type checks: an unknown or reserved key (the file, vendors, job type, a
+decisions document) is refused naming it, never silently sent.
+
+**Upgrading from 0.4.x:** if your assistant relied on the wider default view, add
+`--full` to its `netconverter mcp` command (or set `NETCONVERTER_MCP_VIEW=full` where it
+starts the bridge).
 
 Inside the app, `/activity` and the header's **Bridge** pill show what your AI did
 through the bridge — paths, sizes, SHA-256 and job IDs only.

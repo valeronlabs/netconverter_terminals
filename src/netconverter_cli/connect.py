@@ -33,7 +33,9 @@ def executable() -> str:
 
 
 def _args(root: Path) -> list[str]:
-    return ["mcp", "--workspace", str(root)]
+    # Strict view, written explicitly for every client (#11): an environment that
+    # sets NETCONVERTER_MCP_VIEW=full cannot widen what a connected assistant sees.
+    return ["mcp", "--workspace", str(root), "--strict"]
 
 
 def _is_ours(entry) -> bool:
@@ -328,9 +330,26 @@ CLIENTS = {
                            installed=_exists(_windsurf_path)),
     "lmstudio": ClientSpec("LM Studio", lambda: _json_servers_configured(_lmstudio_path()),
                            installed=lambda: (Path.home() / ".lmstudio").exists()),
+    "openclaw": ClientSpec("OpenClaw", lambda: _openclaw().current_entry() is not None
+                           and _is_ours(_openclaw().current_entry()),
+                           installed=lambda: _openclaw().installed()),
     "chatgpt": ClientSpec("ChatGPT", lambda: False, kind="remote"),
     "claude-ai": ClientSpec("claude.ai (web and mobile)", lambda: False, kind="remote"),
 }
+
+
+def _openclaw():
+    from . import connect_openclaw
+    return connect_openclaw
+
+
+def plan_remove(key: str, root: Path) -> Change:
+    """Undo `connect <client>`; only OpenClaw has a remove path so far (#14)."""
+    if key == "openclaw":
+        return _openclaw().plan_remove(Change)
+    return Change(key, CLIENTS[key].title if key in CLIENTS else key, key,
+                  f"--remove is not available for {key} yet; delete its '{SERVER_NAME}' entry by hand.",
+                  "", can_apply=False, manual="Nothing was changed.")
 
 
 def installed_local_clients() -> list[str]:
@@ -400,6 +419,8 @@ def plan(key: str, root: Path) -> Change:
                                   "Restart LM Studio; use a tool-capable model to call the netconverter tools.")
     if key in REMOTE_STEPS:
         return plan_remote(key)
+    if key == "openclaw":
+        return _openclaw().plan(Change, root, exe, _args(root))
     if key == "cursor":
         path = _cursor_path()
         data = _read_json(path)

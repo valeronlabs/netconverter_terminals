@@ -1,0 +1,73 @@
+{
+  "job_id": "opt_4056e02e5b66",
+  "source_vendor": "fortinet",
+  "target_vendor": "n/a",
+  "status": "completed",
+  "failure_reason": null,
+  "translation_status": null,
+  "review_required": null,
+  "blocking_reasons": [],
+  "review_reasons": [],
+  "job_status": "completed",
+  "job_type": "optimize",
+  "progress": 100,
+  "stage": "complete",
+  "stage_key": "complete",
+  "optimization": {
+    "kind": "optimization",
+    "score": 70,
+    "objects": 140,
+    "rules": 38,
+    "findings": {
+      "blocker": 0,
+      "error": 3,
+      "warning": 3,
+      "info": 5,
+      "total": 11
+    },
+    "top": [
+      {
+        "id": "f1",
+        "category": "security_posture",
+        "severity": "high",
+        "bucket": "error",
+        "title": "SSH Management Exposed to Any Host",
+        "affected_count": 1
+      },
+      {
+        "id": "f2",
+        "category": "security_posture",
+        "severity": "high",
+        "bucket": "error",
+        "title": "Allow Rules Missing Security Profiles",
+        "affected_count": 6
+      },
+      {
+        "id": "f3",
+        "category": "shadow_rule",
+        "severity": "high",
+        "bucket": "error",
+        "title": "Shadowed Rule (graph contribution 0.4)",
+        "affected_count": 2
+      },
+      {
+        "id": "f4",
+        "category": "overlapping_object",
+        "severity": "medium",
+        "bucket": "warning",
+        "title": "Overlapping Address Objects",
+        "affected_count": 4
+      },
+      {
+        "id": "f5",
+        "category": "unused_object",
+        "severity": "medium",
+        "bucket": "warning",
+        "title": "Unused Service Objects",
+        "affected_count": 3
+      }
+    ]
+  },
+  "ci_verdict": "needs_review",
+  "ci_exit_code": 1
+}

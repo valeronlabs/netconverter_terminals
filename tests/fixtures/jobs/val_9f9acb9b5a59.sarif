@@ -1,0 +1,92 @@
+{
+  "version": "2.1.0",
+  "runs": [
+    {
+      "tool": {
+        "driver": {
+          "name": "NetConverter"
+        }
+      },
+      "results": [
+        {
+          "ruleId": "missing_reference",
+          "level": "error",
+          "message": {
+            "text": "Missing Reference: object group DMZ-SERVERS"
+          },
+          "properties": {
+            "source": "validation",
+            "bucket": "blocker",
+            "severity": "blocker",
+            "blocking": true
+          }
+        },
+        {
+          "ruleId": "missing_reference",
+          "level": "error",
+          "message": {
+            "text": "Missing Reference: service group WEB-PORTS (cp1)"
+          },
+          "properties": {
+            "source": "validation",
+            "bucket": "blocker",
+            "severity": "blocker",
+            "blocking": true
+          }
+        },
+        {
+          "ruleId": "unsupported_feature",
+          "level": "warning",
+          "message": {
+            "text": "Unsupported Feature: WCCP redirect in IR"
+          },
+          "properties": {
+            "source": "validation",
+            "bucket": "warning",
+            "severity": "warning",
+            "blocking": false
+          }
+        },
+        {
+          "ruleId": "http_mgmt",
+          "level": "error",
+          "message": {
+            "text": "HTTP Management Exposed to Any Host"
+          },
+          "properties": {
+            "source": "optimizer",
+            "bucket": "error",
+            "severity": "high",
+            "blocking": false
+          }
+        },
+        {
+          "ruleId": "overlap",
+          "level": "warning",
+          "message": {
+            "text": "Overlapping Object Definitions (RAG confidence 80%)"
+          },
+          "properties": {
+            "source": "optimizer",
+            "bucket": "warning",
+            "severity": "medium",
+            "blocking": false
+          }
+        },
+        {
+          "ruleId": "overlap",
+          "level": "warning",
+          "message": {
+            "text": "Overlapping Service Definitions"
+          },
+          "properties": {
+            "source": "optimizer",
+            "bucket": "warning",
+            "severity": "medium",
+            "blocking": false
+          }
+        }
+      ]
+    }
+  ]
+}

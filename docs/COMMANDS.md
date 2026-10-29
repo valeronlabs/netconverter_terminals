@@ -59,9 +59,21 @@ Pilot keys must also answer the Palo Alto settings the pilot API requires:
 | `panorama_device_group`, `panorama_template` | Pilot keys, Panorama target |
 | `remove_unused_objects`, `enable_appid`, `app_id_implementation`, `add_security_profiles`, `log_all_rules`, `implicit_deny`, `default_profile_group`, `zone_mapping` | Pilot keys: optional overrides of the mode preset |
 
+On the full API (`convert --options '{…}'`) the same settings are honoured too: the client
+sends them as a YAML v2 decisions document (`zone_mapping`, `options`, `pa_target`,
+`output_platform`), because the server ignores unknown body keys. `panos_target_version`,
+`routing_engine` and `default_profile_group` apply to Palo Alto targets, the Panorama scope to
+`palo_alto_panorama`, and `pipeline_mode` to pilot keys only; such a setting elsewhere, any
+unknown key, or a request field (`source_config`, vendors, `technology`, `job_type`,
+`manual_mappings`) is refused before anything is uploaded, naming it. The full API also accepts
+`selected_device_groups`, `file_name`, `optimization_options` (optimize) and a whole `yaml_v2`.
+
 ## Plain CLI
 
-These print JSON and exit; they do not poll.
+These exit without polling. `convert`, `validate` / `analyze`, `optimize` and `resume` print a
+short plain summary (verdict ready / needs review / blocked and why, counts, the first findings,
+the next command); `--json` prints the raw API response instead and `--all` lists every finding.
+The other commands print JSON.
 
 ```sh
 netconverter capabilities
@@ -72,6 +84,7 @@ netconverter jobs
 netconverter resume JOB_ID
 netconverter download
 netconverter query nat
+netconverter query unparsed_lines         # the configuration lines NetConverter could not parse
 netconverter query flow --arguments '{"source_ip":"192.0.2.10","destination_ip":"198.51.100.10","protocol":"tcp","destination_port":80}'
 netconverter connect                     # list assistants and whether they are connected
 netconverter connect cursor --print      # show the change only
@@ -79,7 +92,7 @@ netconverter connect claude-desktop      # merge into claude_desktop_config.json
 netconverter connect --all               # every assistant found on this computer, one prompt each
 netconverter connect chatgpt             # ChatGPT / claude.ai: prints remote-connector setup steps
 netconverter mcp --workspace ~/migrations   # what an assistant runs; not for interactive use
-netconverter mcp --strict --workspace ~/migrations   # strict-view remote tools only
+netconverter mcp --full --workspace ~/migrations     # the wider view (strict is the default)
 netconverter update --check              # is a newer release published? (JSON)
 netconverter update                      # verify and install it with uv, after a prompt
 netconverter update --yes                # same, without the prompt
@@ -109,7 +122,7 @@ delays a command; its result is cached in your user cache folder.
 
 | Tool | Returns |
 | --- | --- |
-| `submit_file(path, source_vendor, target_vendor?, job_type?, options?)` | `job_id`, `status`, `sha256`, `bytes`. `job_type`: `convert`, `validate`, `optimize`, or `analyze` (= validate) |
+| `submit_file(path, source_vendor, target_vendor?, job_type?, options?)` | `job_id`, `status`, `sha256`, `bytes`. `job_type`: `convert`, `validate`, `optimize`, or `analyze` (= validate). `options` keys (typed; anything else is refused naming it): `selected_device_groups`, `file_name`, `optimization_options` (optimize), and for convert `zone_mapping`, `remove_unused_objects`, `enable_appid`, `app_id_implementation`, `add_security_profiles`, `log_all_rules`, `implicit_deny`, `panos_target_version` / `routing_engine` / `default_profile_group` (Palo Alto targets), `panorama_device_group` / `panorama_template` (Panorama), `pipeline_mode` (pilot keys). On the full API the convert settings travel as a `yaml_v2` decisions document |
 | `job_status(job_id)` | Status, verdict, review flag, progress and stage when sent, reason counts, vendors |
 | `wait_for_job(job_id, timeout_s=45)` | The `job_status` summary plus `waited_s` and `timed_out` (plus `next` when still running: call it again); polls 2 s, ×1.5, up to 15 s apart, at most 600 s. The default stays under the 60 s tool timeout of Codex and OpenClaw; pass a larger `timeout_s` only when the client allows it. Sends MCP progress notifications when the call has a progress token |
 | `account()` | `tier`, `job_types`, `rate_limit_per_min`, `daily_quota`, `auth_kind`, `profile`, `client_version`, `update_available`, `latest_version`, `strict_mode` (the `--strict` flag), `view_mode` (the view the server applies to this session, from `get_account`), `strict_enforced_by` (`server` when that view is strict, `client` while the bridge enforces it locally), `credential_source` (`clerk_session`, `api_key_environment`, `api_key_stored` or `none`; the one credential REST and the remote tools share) |
@@ -124,10 +137,11 @@ Remote NetConverter tools are proxied only from a fixed allowlist, and never a
 `get_unused_objects`, `get_vpn_summary`, `get_zone_summary`, `kb_explain`,
 `kb_search`, `list_jobs`, `list_objects_with_attribute`, `list_rules_matching`,
 `query_ir`, `search`, `select_job`, `simulate_flow`, `vendor_capability_lookup`.
-With `--strict`: `list_jobs`, `select_job`, `get_account`, `search`, `fetch`,
+With the strict view (the default since 0.5.0; `--strict` names it explicitly, `--full` or
+`--view full` opts out): `list_jobs`, `select_job`, `get_account`, `search`, `fetch`,
 `kb_search`, `kb_explain`, `vendor_capability_lookup`, `get_job_brief`,
 `get_evidence`, `get_report`. A listed tool appears only if the server offers it.
-`--strict` also asks the server for its strict view on every request (`X-NetConverter-View: strict`;
+The strict view also asks the server for its strict view on every request (`X-NetConverter-View: strict`;
 the server may only lower the grant's view, never raise it) and reads the view in force from
 `get_account`. Until the server applies it, the bridge enforces strict locally: it refuses
 `get_evidence section=unparsed_lines`, `get_job_brief focus=target` and any `fetch` that is not
@@ -139,7 +153,8 @@ Global options go before the subcommand: `netconverter --workspace DIR --server 
 Environment: `NETCONVERTER_URL`, `NETCONVERTER_PROVIDER`, `NETCONVERTER_MODEL`,
 `NETCONVERTER_AUTH=key` or `=clerk` (force one credential; unset, plain commands use a stored key first, then
 your sign-in, while `mcp` prefers the sign-in and says on stderr which API key it leaves unused;
-`NETCONVERTER_MCP_AUTH` overrides it for `mcp` only), `NETCONVERTER_TRUSTED_HOSTS`, `NETCONVERTER_MCP_STRICT=1` (same as `mcp --strict`),
+`NETCONVERTER_MCP_AUTH` overrides it for `mcp` only), `NETCONVERTER_TRUSTED_HOSTS`, `NETCONVERTER_MCP_VIEW=full` (same as `mcp --full`; strict is the default, and an
+explicit `--strict` wins),
 `NETCONVERTER_NO_UPDATE_CHECK=1` (no daily update check or notice; `account` then reports
 `update_available: null`).
 Never put a literal key in shell history or a shared script.

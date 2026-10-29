@@ -14,6 +14,7 @@ import json
 
 from .api import APIError, Client, ExternalClient
 from .catalog import JOB_TYPES, device_type_of
+from .job_options import external_body
 
 # Full External API inline-submit ceiling (server: 5 MB).
 EXTERNAL_MAX_BYTES = 5 * 1024 * 1024
@@ -53,11 +54,16 @@ def open_client(credential, server, *, transport=None):
 
 
 def submit_external(client, content: bytes, source_vendor: str, target_vendor, job_type: str,
-                    options: dict, idempotency_key: str):
-    """POST /jobs with inline UTF-8 text. ``technology`` follows the vendor code."""
+                    options: dict, idempotency_key: str, *, allow_document: bool = True):
+    """POST /jobs with inline UTF-8 text. ``technology`` follows the vendor code.
+
+    Options go through ``job_options``: an option the server would ignore is
+    refused (OptionsError) and guided settings travel as ``yaml_v2`` (#11, #19).
+    """
+    settings = external_body(options, job_type, target_vendor, allow_document=allow_document)
     text = content.decode("utf-8")  # callers snapshot UTF-8 text only
-    body = {**options, "source_vendor": source_vendor, "source_config": text}
-    body.setdefault("technology", device_type_of(source_vendor))
+    body = {**settings, "source_vendor": source_vendor, "source_config": text,
+            "technology": device_type_of(source_vendor)}
     if target_vendor:
         body["target_vendor"] = target_vendor
     if job_type != "convert":

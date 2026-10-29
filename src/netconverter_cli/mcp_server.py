@@ -27,7 +27,7 @@ from .backend import EXTERNAL_MAX_BYTES, detect_profile, download_external, subm
 from .clerk import ClerkError
 from .controller import fetch_artifacts
 from .credentials import keyring_problem
-from . import mcp_workflows
+from . import job_options, mcp_workflows
 from .drafts import DraftClient, DraftService
 from .privacy import STATUSES
 from .remote_mcp import RemoteError, RemoteMCP
@@ -44,16 +44,45 @@ WAIT_MAX_S = 600
 WAIT_DEFAULT_S = 45
 _UNSET_TIMEOUT = object()
 WAIT_AGAIN = "still running; call wait_for_job again (or job_status) for the result"
-# Pipeline stage names a status may report; anything else is left out.
+# Pipeline stage names a status may report as-is.
 STAGES = frozenset({"queued", "initializing", "parsing", "extracting", "mapping", "translating",
                     "serializing", "validating", "validate", "reporting", "complete", "completed"})
+# The server's fixed-vocabulary ``stage_key`` (aws#867): passed through when token-shaped.
+_STAGE_KEY = re.compile(r"[a-z][a-z0-9_-]{0,39}\Z")
+STAGE_TEXT_MAX = 120
+# Free-text stages can name an internal id ("Stored to corpus (ID: dfb1d376…)"): such a
+# stage is reported as "storing", never with the id.
+_STAGE_ID = re.compile(
+    r"\bID\s*[:#=]|[0-9A-Fa-f]{8}-[0-9A-Fa-f]{4}-|\b(?=[0-9a-fA-F]*\d)[0-9a-fA-F]{8,}"
+    r"|\b[a-z]{3}_[A-Za-z0-9]{6,}\b", re.IGNORECASE)
+
+
+def sanitize_stage(value) -> str | None:
+    """A server free-text stage made safe to show: printable, single-line, capped, no ids (#29)."""
+    if not isinstance(value, str):
+        return None
+    text = " ".join("".join(ch for ch in value if ch.isprintable() or ch.isspace()).split())
+    if not text:
+        return None
+    if _STAGE_ID.search(text):
+        return "storing"
+    return text[:STAGE_TEXT_MAX].rstrip()
+
+
+def job_stage(data: dict) -> str | None:
+    """``stage_key`` when the server sends one, else the sanitised free-text ``stage``."""
+    progress = data.get("progress") if isinstance(data.get("progress"), dict) else {}
+    for key in (data.get("stage_key"), progress.get("stage_key")):
+        if isinstance(key, str) and _STAGE_KEY.fullmatch(key):
+            return key
+    stage = data.get("stage") or progress.get("stage")
+    if isinstance(stage, str) and stage in STAGES:
+        return stage
+    return sanitize_stage(stage)
 AUTH_KINDS = frozenset({"api_key", "clerk_oauth"})
 _TIER = re.compile(r"[a-z][a-z0-9_]{0,29}\Z")
 _VENDOR = re.compile(r"[a-z0-9_]{2,40}\Z")
 _JOB_ID = re.compile(r"[A-Za-z0-9_-]{1,80}\Z")
-_RESERVED_OPTIONS = frozenset(
-    {"source_config", "file_id", "source_vendor", "target_vendor", "job_type", "configuration_id"}
-)
 
 # Remote NetConverter MCP tools this bridge may proxy. Anything else the server
 # advertises (a new tool, a renamed one, any ``submit_*``) is dropped until a
@@ -159,7 +188,7 @@ LOCAL_TOOLS = [
                 "target_vendor": {"type": "string", "description": "Target vendor code; required for convert."},
                 "job_type": {"type": "string", "enum": [*JOB_TYPES, *JOB_TYPE_ALIASES], "default": "convert",
                              "description": "analyze is an alias of validate."},
-                "options": {"type": "object", "description": "Explicit job options (no configuration text).", "additionalProperties": True},
+                "options": job_options.mcp_schema(),
             },
             "required": ["path", "source_vendor"],
             "additionalProperties": False,
@@ -345,8 +374,10 @@ class Bridge:
         if target_vendor is not None and (not isinstance(target_vendor, str) or not _VENDOR.fullmatch(target_vendor)):
             raise ToolFailure("invalid_arguments", "target_vendor must be a vendor code such as palo_alto_set")
         options = options or {}
-        if not isinstance(options, dict) or _RESERVED_OPTIONS & set(options):
-            raise ToolFailure("invalid_arguments", "options must be an object of job settings (no source content or vendor fields)")
+        try:  # an allowlist with type checks (#11), before any network call
+            job_options.check(options, job_type, target_vendor, profile=None, allow_document=False)
+        except job_options.OptionsError as exc:
+            raise ToolFailure("invalid_arguments", str(exc)) from None
         if len(json.dumps(options, default=str)) > 16_000:
             raise ToolFailure("invalid_arguments", "options are too large; pass settings, not configuration text")
         try:  # confinement first: a refused path never causes network traffic
@@ -355,6 +386,10 @@ class Bridge:
         except WorkspaceError as exc:
             raise ToolFailure("invalid_path", str(exc)) from None
         kind, job_types = self.profile()
+        try:
+            job_options.check(options, job_type, target_vendor, profile=kind, allow_document=False)
+        except job_options.OptionsError as exc:
+            raise ToolFailure("invalid_arguments", str(exc)) from None
         if job_type not in job_types:
             raise ToolFailure(
                 "not_available",
@@ -362,7 +397,7 @@ class Bridge:
                 + (" (terminal Quick keys support convert and optimize)" if kind == "quick" else ""),
                 available_job_types=sorted(job_types),
             )
-        if job_type == "convert" and not (target_vendor or options.get("target_vendor")):
+        if job_type == "convert" and not target_vendor:
             raise ToolFailure("invalid_arguments", "target_vendor is required for convert")
         try:
             _, content, digest = self.workspace.snapshot(
@@ -384,7 +419,7 @@ class Bridge:
         out = {"job_id": job_id, "status": _status(result.get("status")), "sha256": digest, "bytes": len(content)}
         self._log("submit_file", path=str(self.workspace.locate(path).relative_to(self.workspace.root)),
                   job_type=job_type, source_vendor=source_vendor,
-                  target_vendor=target_vendor or options.get("target_vendor"), **out)
+                  target_vendor=target_vendor, **out)
         return out
 
     def _submit_quick(self, content, digest, source_vendor, target_vendor, job_type, options, key):
@@ -402,7 +437,8 @@ class Bridge:
     def _submit_external(self, content, source_vendor, target_vendor, job_type, options, key):
         client = self._client(ExternalClient)
         try:
-            return submit_external(client, content, source_vendor, target_vendor, job_type, options, key)
+            return submit_external(client, content, source_vendor, target_vendor, job_type, options, key,
+                                   allow_document=False)
         except UnicodeDecodeError:
             raise ToolFailure("invalid_path", "Select a UTF-8 text configuration") from None
         finally:
@@ -427,13 +463,13 @@ class Bridge:
             out["verdict"] = _status(verdict)
         if isinstance(data.get("review_required"), bool):
             out["review_required"] = data["review_required"]
-        progress, stage = data.get("progress"), data.get("stage")
+        progress = data.get("progress")
         if isinstance(progress, dict):  # {"stage": ..., "percentage": ...}
-            stage = stage or progress.get("stage")
             progress = progress.get("percentage")
         if type(progress) is int and 0 <= progress <= 100:
             out["progress"] = progress
-        if isinstance(stage, str) and stage in STAGES:
+        stage = job_stage(data)
+        if stage:
             out["stage"] = stage
         for field in ("blocking_reasons", "review_reasons"):
             if isinstance(data.get(field), list):

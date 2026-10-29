@@ -12,6 +12,7 @@ def _no_real_sign_in(request, monkeypatch):
 
     monkeypatch.delenv("NETCONVERTER_AUTH", raising=False)
     monkeypatch.delenv("NETCONVERTER_MCP_STRICT", raising=False)
+    monkeypatch.delenv("NETCONVERTER_MCP_VIEW", raising=False)
     # The license is accepted for tests unless a test removes this; acceptance
     # records go to a temporary folder, never the developer's real config.
     monkeypatch.setenv("NETCONVERTER_ACCEPT_LICENSE", "1")

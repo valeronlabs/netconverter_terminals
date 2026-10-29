@@ -602,13 +602,15 @@ class Terminal(App):
                 line.append(f"  {result['progress']:g}%", style=MUTED)
             kind = 'error' if result['status'] == 'failed' else 'success' if result['status'] == 'completed' else 'info'
             body = [line]
-            for field in ('validation', 'optimization'):
-                if isinstance(result.get(field), dict):
-                    body.append(details_view(result[field]))
+            if any(isinstance(result.get(f), dict) for f in ('validation', 'optimization')):
+                # A scorecard, not the nested digest (#27); same wording as the CLI summary (#7).
+                from .summary import scorecard
+                body = [scorecard(result, names=self.controller.catalog.name)]
+            from .summary import plain
             for field in ('blocking_reasons', 'review_reasons'):
                 if result.get(field):
                     body.append(literal(field.replace('_', ' ').capitalize() + ':', MUTED))
-                    body.extend(literal('• ' + str(r), FG) for r in result[field][:5])
+                    body.extend(literal('• ' + plain(r), FG) for r in result[field][:5])
             self.write(card(f"Job {result.get('job_id', '')}", Group(*body), kind))
             self.previous_job_status = state
 

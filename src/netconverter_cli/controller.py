@@ -12,6 +12,7 @@ from .workspace import Workspace, WorkspaceError
 from .api import APIError, Client, ExternalClient
 from .backend import EXTERNAL_MAX_BYTES, download_external, submit_external
 from .catalog import Catalog
+from .job_options import check as check_options
 
 # Query commands → the NetConverter MCP tool of the same purpose (full API profile).
 QUERY_TOOLS = {
@@ -22,6 +23,8 @@ QUERY_TOOLS = {
     "nat": "get_nat_summary",
     "dependencies": "get_object_dependencies",
     "flow": "simulate_flow",
+    # The configuration lines NetConverter could not parse (#7): fixed tool arguments.
+    "unparsed_lines": ("get_evidence", {"section": "unparsed_lines"}),
 }
 
 
@@ -171,6 +174,11 @@ class Controller:
             raise WorkspaceError("Open a configuration first")
         if self.external and operation == "analyze":
             operation = "validate"
+        settings = dict(options or {})
+        target = settings.pop("target_vendor", None)
+        # Before anything is stored or sent: an option the server would ignore is refused.
+        check_options(settings, "validate" if operation == "analyze" else operation, target,
+                      profile="external" if self.external else "quick")
         request = {
             "configuration_id": selected,
             "operation": operation,
@@ -229,6 +237,17 @@ class Controller:
     def jobs(self):
         return self.client.jobs()
 
+    def findings(self, job_id):
+        """Every finding of a completed validate/optimize job as (bucket, title); None if unavailable."""
+        from .summary import sarif_findings
+
+        if not self.external:
+            return None
+        try:
+            return sarif_findings(self.client.findings(job_id))
+        except (APIError, ValueError):
+            return None
+
     def remote(self):
         if self._remote is None:
             self._remote = self.remote_factory() if self.remote_factory else None
@@ -242,10 +261,11 @@ class Controller:
         tool = QUERY_TOOLS.get(operation)
         if not tool:
             raise WorkspaceError("Unsupported question; use /help")
+        tool, fixed = (tool, {}) if isinstance(tool, str) else tool
         try:
             remote = self.remote()
             remote.call_tool("select_job", {"job_id": job})
-            reply = remote.call_tool(tool, arguments)
+            reply = remote.call_tool(tool, {**arguments, **fixed})
         except RemoteError as exc:
             raise WorkspaceError(f"NetConverter could not answer this question ({exc.code})") from None
         details = reply.get("structuredContent")

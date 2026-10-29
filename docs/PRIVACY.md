@@ -37,7 +37,9 @@ The bridge offers its local tools (`submit_file`, `job_status`, `wait_for_job`,
 `account`, `download`) and proxies NetConverter's remote tools only from a fixed
 client-side allowlist of read tools. A tool the server adds later is not offered
 until a client release lists it, and a remote tool named `submit_*` is never
-proxied. `netconverter mcp --strict` (or `NETCONVERTER_MCP_STRICT=1`) narrows the
+proxied. By default (since 0.5.0) `netconverter mcp` serves the **strict view**, and
+`netconverter connect` writes `--strict` for every assistant; the wider view needs an
+explicit `netconverter mcp --full` (or `NETCONVERTER_MCP_VIEW=full`). The strict view narrows the
 remote tools to the strict-view set (job list and selection, account, search and
 fetch, knowledge base, vendor capabilities, job brief, evidence, report), whatever
 the server advertises, and asks the server for its strict view on every request
@@ -49,8 +51,18 @@ remote results as `<ip>`/`<cidr>` itself; names in summaries are not tokenised
 locally, and `account.strict_enforced_by` says which side is enforcing. `account`
 returns only tier, job types, rate limit, daily quota, auth kind, credential source,
 view mode and client version facts: no tokens, e-mail addresses, key hints or
-tenant IDs. `wait_for_job` progress messages carry only an allowlisted
-status, stage and percentage.
+tenant IDs. `job_status` and `wait_for_job` (and its progress messages) carry an
+allowlisted status and percentage plus the stage: the server's fixed-vocabulary
+`stage_key` when it sends one, otherwise its progress text made single-line,
+stripped of control characters and capped at 120 characters; a stage that names an
+internal id (for example "Stored to corpus (ID: …)") is reported as `storing`.
+
+`submit_file` accepts job `options` only from a fixed, typed allowlist (its schema
+lists every key). The file, vendors, job type, `technology`, and any decisions document
+(`yaml_v2`, `yaml`, `manual_mappings`) can never come from options, and an unknown key
+is refused naming it before anything is uploaded. **Upgrade note (0.5.0):** an
+assistant set up for the old default (full) view now gets the strict view; add `--full`
+to its `netconverter mcp` command only if you want it to see the wider set.
 
 ### Keep the assistant out of the files
 

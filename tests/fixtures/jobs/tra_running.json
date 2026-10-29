@@ -1,0 +1,17 @@
+{
+  "job_id": "tra_5a5a5a5a5a5a",
+  "source_vendor": "cisco_asa",
+  "target_vendor": "palo_alto_xml",
+  "status": "processing",
+  "translation_status": null,
+  "review_required": null,
+  "blocking_reasons": [],
+  "review_reasons": [],
+  "job_status": "processing",
+  "job_type": "convert",
+  "progress": 25,
+  "stage": "Running translation pipeline...",
+  "stage_key": null,
+  "ci_verdict": null,
+  "ci_exit_code": null
+}

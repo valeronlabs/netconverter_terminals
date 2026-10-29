@@ -216,7 +216,8 @@ def test_connect_plans_show_then_write_with_backup(tmp_path, monkeypatch):
     change.apply()
     data = json.loads((tmp_path / '.cursor' / 'mcp.json').read_text())
     assert data['mcpServers']['other'] == {'command': 'x'}
-    assert data['mcpServers']['netconverter']['args'] == ['mcp', '--workspace', str(work.resolve())]
+    # #11: connect writes the strict view explicitly.
+    assert data['mcpServers']['netconverter']['args'] == ['mcp', '--workspace', str(work.resolve()), '--strict']
     assert (tmp_path / '.cursor' / 'mcp.json.bak').exists() and connect._cursor_configured()
     codex = connect.plan('codex', work)
     codex.apply()

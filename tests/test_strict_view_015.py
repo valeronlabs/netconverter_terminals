@@ -170,5 +170,9 @@ def test_mcp_strict_hands_the_strict_view_request_to_the_remote_client(monkeypat
     cli.run_mcp(cli.parser().parse_args(["--server", "https://api.netconverter.ai/external/v1", "mcp", "--strict"]))
     assert seen == {"view_mode": "strict", "strict": True}
     seen.clear()
+    # #11: strict is the default; the wider view needs --full.
     cli.run_mcp(cli.parser().parse_args(["--server", "https://api.netconverter.ai/external/v1", "mcp"]))
+    assert seen == {"view_mode": "strict", "strict": True}
+    seen.clear()
+    cli.run_mcp(cli.parser().parse_args(["--server", "https://api.netconverter.ai/external/v1", "mcp", "--full"]))
     assert seen == {"view_mode": None, "strict": False}

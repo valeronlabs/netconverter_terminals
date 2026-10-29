@@ -12,6 +12,7 @@ from .credentials import get_secret, keyring_available, keyring_problem, load_se
 from .controller import Controller
 from .providers import Provider, ProviderError
 from .commands import execute
+from .job_options import OptionsError
 from .setup import configure, load_settings, account
 from .remote_mcp import DEFAULT_MCP_URL
 
@@ -156,6 +157,13 @@ def whoami(args):
 
 
 MCP_AUTH_MODES = ("auto", "clerk", "key")
+MCP_VIEWS = ("strict", "full")
+
+
+def mcp_view_default() -> str:
+    """`mcp` view default (#11): strict unless the user's NETCONVERTER_MCP_VIEW=full asks for more."""
+    value = os.getenv("NETCONVERTER_MCP_VIEW", "")
+    return value if value in MCP_VIEWS else "strict"
 
 
 def mcp_auth_default() -> str:
@@ -225,7 +233,10 @@ def run_mcp(args):
     for note in notes:
         print(f"netconverter mcp: {note}", file=sys.stderr)
     guided = bool(getattr(args, "guided", False))
-    strict = bool(getattr(args, "strict", False)) or guided
+    strict = getattr(args, "view", "strict") != "full" or guided
+    if not strict:
+        print("netconverter mcp: full view (--full): the assistant can call every allowlisted remote "
+              "tool, and results show this tenant's own addresses and names", file=sys.stderr)
     remote = None
     if remote_credential is not None and not args.no_remote and not guided:
         # --strict asks the server for its strict view on every request (#15).
@@ -306,9 +317,9 @@ def run_connect(args, ask=input):
 
 
 def _connect_one(args, root, ask):
-    from .connect import CLIENTS, plan
+    from .connect import CLIENTS, plan, plan_remove
 
-    change = plan(args.client, root)
+    change = (plan_remove if getattr(args, "remove", False) else plan)(args.client, root)
     print(f"{change.title}: {change.summary}\n\n{change.preview}\n")
     if args.print_only:
         for extra in change.followups:
@@ -445,8 +456,13 @@ def parser():
     mcp.add_argument("--no-remote", action="store_true", help="serve only the local file tools")
     mcp.add_argument("--guided", action="store_true",
                      help="revisioned draft tools with human approval; requires server capability")
-    mcp.add_argument("--strict", action="store_true", default=os.getenv("NETCONVERTER_MCP_STRICT") == "1",
-                     help="proxy only the strict-view remote tools (summaries, names as tokens)")
+    mcp.add_argument("--view", choices=list(MCP_VIEWS), default=mcp_view_default(),
+                     help="strict (the default: summaries, names as tokens) or full; "
+                          "default from NETCONVERTER_MCP_VIEW")
+    mcp.add_argument("--strict", dest="view", action="store_const", const="strict",
+                     help="the strict view (the default)")
+    mcp.add_argument("--full", dest="view", action="store_const", const="full",
+                     help="the wider view: every allowlisted remote tool; needs this explicit choice")
     mcp.add_argument("--workspace", default=argparse.SUPPRESS, help="folder the file tools may read and write")
     from .connect import CLIENTS as _AI_CLIENTS
     connect = subs.add_parser(
@@ -455,6 +471,7 @@ def parser():
     connect.add_argument("--all", action="store_true", help="connect every AI assistant found on this computer")
     connect.add_argument("--print", action="store_true", dest="print_only", help="show the change without applying it")
     connect.add_argument("--yes", action="store_true", help="apply without asking (scripts)")
+    connect.add_argument("--remove", action="store_true", help="remove the client's netconverter entry (openclaw)")
     update = subs.add_parser("update", help="upgrade from PyPI, or install the latest verified release from GitHub")
     update.add_argument("--check", action="store_true", help="only report whether a newer release exists")
     update.add_argument("--yes", action="store_true", help="install without asking")
@@ -465,14 +482,17 @@ def parser():
     add_project_parser(subs)
     subs.add_parser("setup")
     subs.add_parser("jobs")
+    from .one_shot import add_flags as add_output_flags
     resume = subs.add_parser("resume")
     resume.add_argument("job_id", nargs="?")
+    add_output_flags(resume)
     for name in ("validate", "analyze", "optimize", "convert"):
         sub = subs.add_parser(name)
         sub.add_argument("file")
         sub.add_argument("--vendor", required=True, help="source vendor code (see `netconverter capabilities`)")
         sub.add_argument("--to", dest="target", help="target vendor code (convert)")
         sub.add_argument("--options", default="{}")
+        add_output_flags(sub)
     ask = subs.add_parser("ask")
     ask.add_argument("question")
     query = subs.add_parser("query")
@@ -655,8 +675,12 @@ def main(argv=None):
                             "Command failed; use /help. No diagnostic payload was saved."
                         )
                 return
-        print(json.dumps(result, indent=2, default=str))
-    except ProviderError as exc:
+        from .one_shot import SUMMARY_COMMANDS, render
+        if args.command in SUMMARY_COMMANDS:  # a plain summary; --json for the raw response (#7)
+            print(render(c, args, result))
+        else:
+            print(json.dumps(result, indent=2, default=str))
+    except (ProviderError, OptionsError) as exc:
         print(str(exc))
         raise SystemExit(1) from None
     except APIError as exc:

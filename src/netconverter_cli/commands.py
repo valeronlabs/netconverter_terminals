@@ -62,6 +62,7 @@ def execute(controller, text):
         "nat",
         "dependencies",
         "flow",
+        "unparsed_lines",
     }:
         args = json.loads(rest) if rest else {}
         if not isinstance(args, dict):

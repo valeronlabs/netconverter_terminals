@@ -4,7 +4,7 @@ NetConverter reaches your AI assistant in one of two ways. Pick the one your ass
 
 | Way | What your AI can do | Assistants |
 |---|---|---|
-| **Terminal bridge** (`netconverter mcp`, runs on your computer) | Everything below, **plus submit** configurations for conversion, validation and optimization. The bridge uploads the file from disk; the configuration never passes through the model. | Claude Desktop, Claude Code, Cursor, Gemini CLI, Codex CLI, VS Code, Windsurf, LM Studio |
+| **Terminal bridge** (`netconverter mcp`, runs on your computer) | Everything below, **plus submit** configurations for conversion, validation and optimization. The bridge uploads the file from disk; the configuration never passes through the model. | Claude Desktop, Claude Code, Cursor, Gemini CLI, Codex CLI, VS Code, Windsurf, LM Studio, OpenClaw |
 | **Remote connector** (`https://api.netconverter.ai/mcp/v1`) | Read your jobs, verdicts, evidence and reports, your account, and the NetConverter migration knowledge base. No file submission. | claude.ai (web, mobile, Desktop chat), ChatGPT |
 
 Both need a NetConverter account with **MCP access enabled** by your administrator
@@ -18,6 +18,7 @@ Both need a NetConverter account with **MCP access enabled** by your administrat
 - [Claude Desktop](claude-desktop.md) — terminal bridge
 - [Claude Code](claude-code.md) — terminal bridge
 - [Cursor, Gemini CLI, Codex CLI, VS Code, Windsurf, LM Studio](other-assistants.md) — terminal bridge
+- [OpenClaw](openclaw.md) — terminal bridge, through `openclaw mcp`
 
 ## Fastest path (terminal bridge)
 

@@ -1,0 +1,29 @@
+{
+  "job_id": "tra_4058ef406cd6",
+  "source_vendor": "cisco_asa",
+  "target_vendor": "palo_alto_xml",
+  "status": "completed",
+  "failure_reason": null,
+  "source_config_id": "tra_4058ef406cd6:source",
+  "translated_config_id": "tra_4058ef406cd6:palo_alto_xml",
+  "translation_status": "needs_review",
+  "review_required": true,
+  "blocking_reasons": [],
+  "review_reasons": [
+    "BC2 vacuous: no NAT rules to compare",
+    "BC3 found 1 new shadowed rule in IR",
+    "CP4a: security rule count near the platform limit",
+    "Zone outside mapped by RAG confidence 0.80",
+    "Object DMZ-WEB renamed to fit PAN-OS limits"
+  ],
+  "reasons_truncated": false,
+  "job_status": "needs_review",
+  "block_reason": null,
+  "blocking_stage": null,
+  "job_type": "convert",
+  "progress": 100,
+  "stage": "complete",
+  "stage_key": "complete",
+  "ci_verdict": "needs_review",
+  "ci_exit_code": 1
+}

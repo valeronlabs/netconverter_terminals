@@ -36,7 +36,7 @@ def test_claude_desktop_merges_entry_keeps_keys_and_backs_up(home, monkeypatch):
     data = json.loads(path.read_text())
     assert data["globalShortcut"] == "Cmd+Space" and data["mcpServers"]["other"] == {"command": "x"}
     assert data["mcpServers"]["netconverter"] == {
-        "command": "/opt/bin/netconverter", "args": ["mcp", "--workspace", str(work.resolve())]}
+        "command": "/opt/bin/netconverter", "args": ["mcp", "--workspace", str(work.resolve()), "--strict"]}
     assert json.loads(path.with_name(path.name + ".bak").read_text())["globalShortcut"] == "Cmd+Space"
     assert connect._desktop_configured()
     assert "Claude Desktop" in connect.configured_clients(work)
