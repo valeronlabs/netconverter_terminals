@@ -96,7 +96,9 @@ internal id (for example "Stored to corpus (ID: …)") is reported as `storing`.
 `submit_file` accepts job `options` only from a fixed, typed allowlist (its schema
 lists every key). The file, vendors, job type, `technology`, and any decisions document
 (`yaml_v2`, `yaml`, `manual_mappings`) can never come from options, and an unknown key
-is refused naming it before anything is uploaded.
+is refused naming it before anything is uploaded. When the assistant supports form
+elicitation, `submit_file` asks you to confirm the upload in the assistant's own dialog (path,
+size and SHA-256 only) and sends nothing if you decline or dismiss it.
 
 ### Keep the assistant out of the files
 

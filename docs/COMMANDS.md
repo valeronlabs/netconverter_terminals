@@ -196,6 +196,19 @@ delays a command; its result is cached in your user cache folder.
 | `account()` | Signed out: `status` (`signed_out`, `keyring_unreachable`), `signed_in: false`, `message`, `client_version`, `update_available`, `latest_version` (not an error). Signed in: `tier`, `job_types`, `rate_limit_per_min`, `daily_quota`, `auth_kind`, `profile`, `client_version`, `update_available`, `latest_version`, `strict_mode` (true below `full`), `exposure_level` and `exposure_sections` (the level in force, see Exposure levels), `view_mode_grant` and `view_clamped` when the server reports them, `view_mode` (the view the server applies to this session, from `get_account`), `strict_enforced_by` (`server` when that view is strict, `client` while the bridge enforces it locally), `credential_source` (`clerk_session`, `api_key_environment`, `api_key_stored` or `none`; the one credential REST and the remote tools share) |
 | `download(job_id, dest_dir=".")` | Saved file names, sizes and SHA-256 |
 
+Every local tool declares an `outputSchema` for its `structuredContent` (error results carry
+none). When the assistant advertises form elicitation in `initialize` (Claude Code, Codex, Cursor
+CLI), `submit_file` first asks in the assistant's own dialog: "Upload <path> (<bytes>, SHA-256 …) to
+NetConverter for <job type>?". Accept uploads; Decline or a dismissed dialog sends nothing and the
+tool returns `upload_declined`. Without elicitation, or when the assistant answers the request with
+an error, the upload proceeds after the assistant's own tool approval, as before. The dialog shows
+the path, size and hash only, never the file's text.
+
+The bridge also offers two MCP prompts: `guided-migration` (from a file path to a verdict and
+artifacts) and `mapping-review` (optional `job_id`: what was mapped, what needs review, what is
+blocked). Both tell the assistant it will not get configuration content and name the folder's
+exposure level. `--guided` keeps its own prompts (`migration-studio`, `pre-cutover-review`).
+
 Remote NetConverter tools are proxied only from a fixed allowlist, and never a
 `submit_*` tool. Default: `compare_against_intent`, `fetch`, `get_account`,
 `get_acl_summary`, `get_critical_object_impact`, `get_dependency_chains`,
