@@ -33,6 +33,14 @@ def add_parser(subparsers):
                        help="none, masked, selected or full")
     level.add_argument("--sections", default="", metavar="LIST",
                        help="with selected: comma-separated sections: " + ", ".join(exposure.SECTIONS))
+    from .privacy_apply import CLIENTS
+
+    apply = actions.add_parser("apply", help="keep an AI client's own file tools out of this folder")
+    apply.add_argument("--client", required=True, choices=list(CLIENTS), metavar="CLIENT",
+                       help="assistant to configure: " + ", ".join(CLIENTS))
+    apply.add_argument("--print", dest="print_only", action="store_true",
+                       help="show the change without applying it")
+    apply.add_argument("--yes", action="store_true", help="apply without asking (scripts)")
 
 
 def run(args, ask=None) -> int:
@@ -40,6 +48,10 @@ def run(args, ask=None) -> int:
     action = getattr(args, "privacy_command", None) or "status"
     if action == "level":
         return _level(root, args, ask)
+    if action == "apply":
+        from .privacy_apply import run as run_apply
+
+        return run_apply(root, args, ask or input)
     return _status(root, json_out=getattr(args, "json", False))
 
 

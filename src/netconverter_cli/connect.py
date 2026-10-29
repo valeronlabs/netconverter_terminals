@@ -193,6 +193,11 @@ def read_deny_rule(root: Path) -> str:
     return f"Read({path.rstrip('/')}/**)"
 
 
+def edit_deny_rule(root: Path) -> str:
+    """The matching Edit rule (Claude Code's Edit rules cover every file-editing tool)."""
+    return "Edit" + read_deny_rule(root)[len("Read"):]
+
+
 def _too_broad_for_deny(root: Path) -> bool:
     """A deny rule on the home folder (or anything containing it, or a filesystem root)
     would stop Claude Code reading every project; it is only offered for a dedicated folder."""
@@ -201,9 +206,14 @@ def _too_broad_for_deny(root: Path) -> bool:
     return root == home or home.is_relative_to(root) or root.parent == root
 
 
-def plan_claude_read_deny(root: Path) -> Change:
+def plan_claude_read_deny(root: Path, rules: list[str] | None = None) -> Change:
+    """Merge deny ``rules`` (default: the folder's Read rule) into Claude Code's user settings.
+
+    `netconverter privacy apply --client claude-code` passes the Read and Edit rules (#13).
+    """
     path = _claude_settings_path()
-    rule = read_deny_rule(root)
+    wanted = list(rules) if rules else [read_deny_rule(root)]
+    rule = ", ".join(wanted)
     title, where = "Claude Code read rule", str(path)
     if _too_broad_for_deny(root):
         return Change("claude-code-deny", title, where,
@@ -215,15 +225,16 @@ def plan_claude_read_deny(root: Path) -> Change:
     permissions = data.get("permissions", {}) if isinstance(data, dict) else None
     deny = permissions.get("deny", []) if isinstance(permissions, dict) else None
     if not isinstance(deny, list):
-        block = json.dumps({"permissions": {"deny": [rule]}}, indent=2)
+        block = json.dumps({"permissions": {"deny": wanted}}, indent=2)
         return Change("claude-code-deny", title, where,
                       f"{path} could not be merged safely; add the deny rule by hand.",
                       block, can_apply=False, manual=f"Add {rule} to permissions.deny in {path}.")
-    if rule in deny:
+    if all(r in deny for r in wanted):
         return Change("claude-code-deny", title, where, f"{path} already denies {rule}.", rule,
                       can_apply=False, manual="Nothing to change.")
     after = json.loads(json.dumps(data))
-    after.setdefault("permissions", {}).setdefault("deny", []).append(rule)
+    after_deny = after.setdefault("permissions", {}).setdefault("deny", [])
+    after_deny.extend(r for r in wanted if r not in after_deny)
 
     def write() -> str:
         current = _read_json(path)  # re-read: never drop a change made since the preview
@@ -232,8 +243,7 @@ def plan_claude_read_deny(root: Path) -> Change:
         rules = current.setdefault("permissions", {}).setdefault("deny", [])
         if not isinstance(rules, list):
             raise RuntimeError(f"{path} permissions.deny is not a list; nothing was changed")
-        if rule not in rules:
-            rules.append(rule)
+        rules.extend(r for r in wanted if r not in rules)
         _write_json(path, current)
         return (f"Claude Code will not read files in this folder directly ({rule}); "
                 "it works on them through the bridge. Restart Claude Code to apply.")
