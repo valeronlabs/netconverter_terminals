@@ -7,7 +7,7 @@ name = "netconverter-cli"
 version = "0.4.3"
 description = "NetConverter CLI — any-vendor network configuration migration, validation and optimization, and a local MCP bridge for your AI assistant"
 readme = "README.md"
-license = "MIT"
+license = "LicenseRef-NetConverter-Proprietary"
 license-files = ["LICENSE"]
 authors = [{name = "ValeronLabs LLC", email = "contact@netconverter.ai"}]
 requires-python = ">=3.12"
@@ -50,6 +50,10 @@ include = ["src/netconverter_cli", "tests", "docs", "README.md", "CHANGELOG.md",
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/netconverter_cli"]
+
+[tool.hatch.build.targets.wheel.force-include]
+# The full license text, readable at runtime by `netconverter license show`.
+"LICENSE" = "netconverter_cli/LICENSE"
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

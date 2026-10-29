@@ -462,10 +462,12 @@ def test_stdio_round_trip_in_process(workspace):
     assert MARKER not in json.dumps(replies)
 
 
-def test_stdio_subprocess_round_trip(workspace):
+def test_stdio_subprocess_round_trip(workspace, tmp_path):
     """Real process over real pipes: nothing but JSON-RPC appears on stdout."""
     env = {k: v for k, v in os.environ.items() if not k.startswith("NETCONVERTER_")}
     env["NETCONVERTER_API_KEY"] = "nck_synthetic_offline"
+    env["NETCONVERTER_ACCEPT_LICENSE"] = "1"  # the unaccepted bridge is tested in test_license.py
+    env["NETCONVERTER_CONFIG_HOME"] = str(tmp_path / "config")
     messages = [
         {"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {"protocolVersion": "2099-01-01"}},
         {"jsonrpc": "2.0", "method": "notifications/initialized"},

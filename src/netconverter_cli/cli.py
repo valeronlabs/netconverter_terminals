@@ -422,6 +422,13 @@ def parser():
     p.add_argument("--model", default=os.getenv("NETCONVERTER_MODEL"))
     subs = p.add_subparsers(dest="command")
     subs.add_parser("run")
+    lic = subs.add_parser("license", help="read and accept the client license")
+    lic.add_argument("license_action", nargs="?", choices=["show", "accept", "status"],
+                     help="show the full text, accept it, or print the acceptance status")
+    lic.add_argument("--yes", action="store_true", help="accept without a prompt (scripts)")
+    tour = subs.add_parser("walkthrough", help="a short guided tour of the client and its integrations")
+    tour.add_argument("step", nargs="?", type=int, help="show one step (1-7)")
+    tour.add_argument("--all", action="store_true", help="print every step without pausing")
     login = subs.add_parser("login", help="store an API key, or sign in with --clerk")
     method = login.add_mutually_exclusive_group()
     method.add_argument("--clerk", action="store_true", help="sign in with your NetConverter account (browser)")
@@ -481,6 +488,17 @@ def parser():
 
 def main(argv=None):
     args = parser().parse_args(argv)
+    from . import license as license_
+    if args.command == "license":
+        raise SystemExit(license_.run(args))
+    if args.command == "walkthrough":
+        from . import walkthrough
+        raise SystemExit(walkthrough.run(args))
+    if args.command == "mcp" and not license_.accepted():
+        # An AI client starts the bridge with no terminal to prompt in.
+        license_.serve_blocked_mcp()
+        return
+    license_.ensure(args.command, interactive=sys.stdin.isatty() and sys.stdout.isatty())
     resolve_workspace(args)
     if args.command == "update":
         from . import update

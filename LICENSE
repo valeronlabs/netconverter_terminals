@@ -1,21 +1,61 @@
-MIT License
+NetConverter Terminal Client License
+Version 1.0, effective 2026-10-29
 
-Copyright (c) 2026 ValeronLabs LLC
+Copyright (c) 2026 ValeronLabs LLC. All rights reserved.
 
-Permission is hereby granted, free of charge, to any person obtaining a copy
-of this software and associated documentation files (the "Software"), to deal
-in the Software without restriction, including without limitation the rights
-to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
-copies of the Software, and to permit persons to whom the Software is
-furnished to do so, subject to the following conditions:
+This license applies to the NetConverter terminal client ("the Software"),
+version 0.4.4 and later, including its source code, documentation and
+installers. Versions 0.4.3 and earlier were released under the MIT License;
+copies of those versions obtained before this license took effect keep the
+MIT terms.
 
-The above copyright notice and this permission notice shall be included in all
-copies or substantial portions of the Software.
+1. Grant
+   ValeronLabs LLC ("ValeronLabs") grants you a limited, non-exclusive,
+   non-transferable, revocable license to install and run the Software on
+   devices you control, solely to use NetConverter services under a valid
+   NetConverter account, for your own internal business purposes.
 
-THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
-IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
-AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
-LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
-OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
-SOFTWARE.
+2. Restrictions
+   You may not, and may not permit anyone else to:
+   a. copy, distribute, publish, sublicense, sell, rent, lease, lend or
+      otherwise make the Software available to any third party, including by
+      hosting it for others or bundling it with another product;
+   b. modify, adapt, translate or create derivative works of the Software;
+   c. remove or alter any copyright, license or proprietary notice;
+   d. circumvent or disable any security, authentication, usage limit or
+      license-acceptance mechanism of the Software or NetConverter services;
+   e. use the Software to build or train a competing product or service.
+
+3. Source availability
+   The source code may be made available for transparency and security
+   review. Being able to read the source grants no right beyond Section 1.
+
+4. Ownership
+   ValeronLabs and its licensors own the Software and all intellectual
+   property rights in it. No rights are granted except those stated here.
+   If you send feedback, ValeronLabs may use it without obligation to you.
+
+5. Third-party components
+   Third-party components included with or required by the Software are
+   licensed under their own terms, which govern those components.
+
+6. Termination
+   This license ends automatically if you breach it or when your NetConverter
+   account ends. On termination you must stop using the Software and delete
+   all copies in your possession or control.
+
+7. No warranty
+   THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+   IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+   FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.
+
+8. Limitation of liability
+   IN NO EVENT SHALL VALERONLABS OR ITS LICENSORS BE LIABLE FOR ANY CLAIM,
+   DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR
+   OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE
+   USE OR OTHER DEALINGS IN THE SOFTWARE.
+
+Your use of NetConverter services is also subject to the NetConverter Terms
+of Service and Privacy Policy at https://netconverter.ai.
+
+Questions: contact@netconverter.ai

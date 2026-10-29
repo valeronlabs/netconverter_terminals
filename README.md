@@ -133,6 +133,8 @@ a day; set `NETCONVERTER_NO_UPDATE_CHECK=1` to turn that off.
 - [Privacy and data flow](docs/PRIVACY.md) · [Verification status](docs/VERIFICATION.md)
 - [Changelog](CHANGELOG.md) · [Contributing](CONTRIBUTING.md) · [Security](SECURITY.md)
 
-The client is [MIT licensed](LICENSE). The license does not grant access to the
+The client is licensed for use with your NetConverter account only and may not be
+redistributed ([license](LICENSE)); you accept it on first run (`netconverter license`).
+Versions up to 0.4.3 were MIT licensed. The license does not grant access to the
 hosted service or license the server code. macOS is the exercised platform;
 Windows acceptance remains pending.

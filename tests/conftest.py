@@ -12,6 +12,11 @@ def _no_real_sign_in(request, monkeypatch):
 
     monkeypatch.delenv("NETCONVERTER_AUTH", raising=False)
     monkeypatch.delenv("NETCONVERTER_MCP_STRICT", raising=False)
+    # The license is accepted for tests unless a test removes this; acceptance
+    # records go to a temporary folder, never the developer's real config.
+    monkeypatch.setenv("NETCONVERTER_ACCEPT_LICENSE", "1")
+    monkeypatch.setenv("NETCONVERTER_CONFIG_HOME",
+                       str(request.getfixturevalue("tmp_path_factory").mktemp("nc-config")))
     # No test reaches GitHub or the developer's real update cache.
     from netconverter_cli import update
 
