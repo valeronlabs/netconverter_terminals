@@ -47,6 +47,17 @@ Questions need a completed job: use `/resume` first. Selecting another file or
 
 The app shows the profile in the header and in `/refresh`.
 
+Where a sign-in or key is kept: the OS credential store when one is available, otherwise
+an encrypted credential file (headless machines, containers). `netconverter login --store
+file` (or `keyring`, `auto`) chooses for that sign-in, for example `netconverter login
+--device --store file` on an SSH host; `NETCONVERTER_CREDENTIAL_STORE=auto|keyring|file`
+keeps the choice. The file needs a passphrase of at least 12 characters:
+`NETCONVERTER_CREDENTIAL_PASSPHRASE`, `NETCONVERTER_CREDENTIAL_PASSPHRASE_FILE` (a path to a
+file holding it), or a hidden prompt on a terminal. `NETCONVERTER_CREDENTIAL_FILE` moves the
+file. `login` and `whoami` print the store in use. An AI client that starts `netconverter
+mcp` must pass the passphrase variable in the server's `env`. Encryption details and the
+threat model: [PRIVACY.md](PRIVACY.md#encrypted-credential-file-headless-machines).
+
 ## Conversion settings
 
 Full API: choose the target; the server applies its defaults for everything else.
@@ -67,6 +78,12 @@ sends them as a YAML v2 decisions document (`zone_mapping`, `options`, `pa_targe
 unknown key, or a request field (`source_config`, vendors, `technology`, `job_type`,
 `manual_mappings`) is refused before anything is uploaded, naming it. The full API also accepts
 `selected_device_groups`, `file_name`, `optimization_options` (optimize) and a whole `yaml_v2`.
+
+In the app, `/convert` on the full API asks **Conversion settings** after the target: *Use
+NetConverter's defaults* sends no decisions; *Customize* walks the same screens a pilot key
+gets (Panorama scope for a Panorama target, unused-object cleanup, App-ID, profiles, logging,
+explicit deny, a profile group for Palo Alto targets, and the zone mapping), each with a
+server-default choice, and the review's Submit sends them as the YAML v2 document above.
 
 ### YAML v2 decisions (`yaml_v2`)
 
@@ -168,9 +185,14 @@ in it or a parent can reach the files through its project tools.
 
 `connect` targets: `claude-code` (through `claude mcp add`, user scope; then offers
 a `Read(//<folder>/**)` deny rule in `~/.claude/settings.json`, default yes),
-`claude-desktop`, `cursor`, `vscode` (this folder's `.vscode/mcp.json`), `codex`,
-`gemini` (Gemini CLI, `~/.gemini/settings.json`), `windsurf`
-(`~/.codeium/windsurf/mcp_config.json`) and `lmstudio` (`~/.lmstudio/mcp.json`).
+`claude-desktop`, `cursor`, `vscode` (this folder's `.vscode/mcp.json`), `codex` (with
+`env_vars` forwarding the NetConverter variables), `gemini` (Gemini CLI,
+`~/.gemini/settings.json`, with an `env` block of `$NAME` references because Gemini strips
+variables named like KEY/AUTH/CREDENTIAL; trust the folder in Gemini or no MCP server
+starts), `devin` (Devin Desktop, formerly Windsurf, and Devin CLI:
+`~/.config/devin/mcp_config.json`), `windsurf` (legacy Cascade,
+`~/.codeium/windsurf/mcp_config.json`) and `lmstudio` (`~/.lmstudio/mcp.json`). Paths and
+formats per vendor docs: [connect/compatibility.md](connect/compatibility.md).
 `chatgpt` and `claude-ai` only reach remote MCP servers, so `connect` prints the steps
 to add NetConverter's hosted MCP (`https://api.netconverter.ai/mcp/v1`) in that app and
 changes nothing locally; those apps read jobs, results and the knowledge base but cannot
@@ -239,7 +261,9 @@ your sign-in, while `mcp` prefers the sign-in and says on stderr which API key i
 the folder's exposure level, and an explicit flag wins),
 `NETCONVERTER_NO_UPDATE_CHECK=1` (no daily update check or notice; `account` then reports
 `update_available: null`), `NETCONVERTER_KEYRING_TIMEOUT_S` (how long to wait for the OS keyring
-before reporting it locked; default 5).
+before reporting it locked; default 5), `NETCONVERTER_CREDENTIAL_STORE`,
+`NETCONVERTER_CREDENTIAL_PASSPHRASE`, `NETCONVERTER_CREDENTIAL_PASSPHRASE_FILE` and
+`NETCONVERTER_CREDENTIAL_FILE` (the encrypted credential file; see Credentials and profiles).
 Never put a literal key in shell history or a shared script.
 
 ## Exit codes
@@ -282,6 +306,7 @@ file is reported as a missing file, never as "not signed in".
 | No verified configuration | Read validation reports and warnings; evidence can be available even when no deployable output is produced |
 | Proxy-only network fails | Client HTTP connections ignore environment proxy settings and do not follow redirects; use a network with direct access to configured endpoints |
 | Full-screen UI unsuitable | Use `netconverter plain` or individual CLI commands |
+| "the credentials are in the encrypted file …, which this process cannot open" | Set `NETCONVERTER_CREDENTIAL_PASSPHRASE` (or `NETCONVERTER_CREDENTIAL_PASSPHRASE_FILE`) to the passphrase used at sign-in, in the shell or in the AI client's `env` for the bridge. "does not open" means a wrong passphrase or an altered file |
 | "Your system keyring is locked" (exit 3) | The OS keyring did not answer within 5 seconds (a locked Secret Service collection after a reboot, or a keychain waiting for a password). Unlock it (for example by logging in to the desktop session), or sign in again with `netconverter login` |
 | `keyring_unreachable` from the bridge (Linux) | The assistant launched `netconverter mcp` without `DBUS_SESSION_BUS_ADDRESS`; the bridge tries `$XDG_RUNTIME_DIR/bus` and `/run/user/<uid>/bus`, else set that variable (or `NETCONVERTER_API_KEY`) in the assistant's MCP server environment and restart it |
 | Assistant cannot see a NetConverter tool | The bridge lists only allowlisted remote tools the server offers (fewer below `full`; `netconverter privacy status` shows the level); update the client with `netconverter update` |

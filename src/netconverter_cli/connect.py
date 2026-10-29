@@ -23,6 +23,18 @@ from typing import Callable
 from urllib.parse import urlparse
 
 SERVER_NAME = "netconverter"
+# Variables the bridge reads whose names Gemini CLI strips from an MCP server's
+# environment (it drops names containing KEY, TOKEN, AUTH, SECRET, PASSWORD,
+# CREDENTIAL, ... unless the server's `env` lists them) and that Codex CLI never
+# passes (it clears the environment except `env_vars`). Written as references
+# ("$NAME"), never values (#14).
+BRIDGE_ENV = (
+    "NETCONVERTER_API_KEY", "NETCONVERTER_AUTH", "NETCONVERTER_MCP_AUTH",
+    "NETCONVERTER_KEYRING_TIMEOUT_S", "NETCONVERTER_CREDENTIAL_STORE", "NETCONVERTER_CREDENTIAL_FILE",
+    "NETCONVERTER_CREDENTIAL_PASSPHRASE", "NETCONVERTER_CREDENTIAL_PASSPHRASE_FILE",
+)
+GEMINI_TRUST = ("Gemini CLI starts MCP servers only in a trusted folder: trust the folder you run "
+                "gemini in when it asks, or with /permissions (or `gemini trust`).")
 
 
 def executable() -> str:
@@ -264,7 +276,17 @@ def _gemini_path() -> Path:
 
 
 def _windsurf_path() -> Path:
+    """Legacy Windsurf Cascade; Windsurf is now Devin Desktop (2026-06)."""
     return Path.home() / ".codeium" / "windsurf" / "mcp_config.json"
+
+
+def _devin_path() -> Path:
+    """Devin CLI and Devin Desktop's default agent (docs.devin.ai, checked 2026-10-29)."""
+    if _platform() == "win32":
+        appdata = os.getenv("APPDATA")
+        return (Path(appdata) if appdata else Path.home() / "AppData" / "Roaming") / "devin" / "mcp_config.json"
+    base = os.getenv("XDG_CONFIG_HOME")
+    return (Path(base) if base else Path.home() / ".config") / "devin" / "mcp_config.json"
 
 
 def _lmstudio_path() -> Path:
@@ -392,6 +414,8 @@ CLIENTS = {
                          installed=lambda: bool(shutil.which("gemini")) or _gemini_path().parent.exists()),
     "windsurf": ClientSpec("Windsurf", lambda: _json_servers_configured(_windsurf_path()),
                            installed=_exists(_windsurf_path)),
+    "devin": ClientSpec("Devin Desktop / Devin CLI", lambda: _json_servers_configured(_devin_path()),
+                        installed=lambda: bool(shutil.which("devin")) or _devin_path().parent.exists()),
     "lmstudio": ClientSpec("LM Studio", lambda: _json_servers_configured(_lmstudio_path()),
                            installed=lambda: (Path.home() / ".lmstudio").exists()),
     "openclaw": ClientSpec("OpenClaw", lambda: _openclaw().current_entry() is not None
@@ -452,16 +476,30 @@ def plan(key: str, root: Path) -> Change:
         entry = {"command": exe, "args": _args(root)}
         block = json.dumps({"mcpServers": {SERVER_NAME: entry}}, indent=2)
         if path is None:
-            return Change(key, "Claude Desktop", "Claude Desktop", "Claude Desktop runs on macOS and Windows only.",
-                          block, can_apply=False, manual="Add the block above to claude_desktop_config.json.")
+            return Change(key, "Claude Desktop", "Claude Desktop",
+                          "Claude Desktop for Linux is a beta whose config file location is not documented, "
+                          "so connect does not edit it.", block, can_apply=False,
+                          manual="In Claude Desktop: Settings → Developer → Edit Config, add the block above "
+                                 "to claude_desktop_config.json, then restart Claude Desktop.")
         return _plan_json_servers(key, "Claude Desktop", path, entry,
                                   "Quit and reopen Claude Desktop to load the netconverter tools.")
     if key == "gemini":
-        return _plan_json_servers(key, "Gemini CLI", _gemini_path(), {"command": exe, "args": _args(root)},
-                                  "Restart gemini, then run /mcp to see the netconverter tools.")
+        entry = {"command": exe, "args": _args(root), "env": {name: "$" + name for name in BRIDGE_ENV}}
+        change = _plan_json_servers(key, "Gemini CLI", _gemini_path(), entry,
+                                    "Restart gemini, then run /mcp to see the netconverter tools. " + GEMINI_TRUST)
+        change.summary += (" Lists the NetConverter variables in env (Gemini removes variables named like "
+                           "KEY, AUTH or CREDENTIAL otherwise). " + GEMINI_TRUST)
+        return change
     if key == "windsurf":
-        return _plan_json_servers(key, "Windsurf", _windsurf_path(), {"command": exe, "args": _args(root)},
-                                  "Refresh MCP servers in Windsurf (Cascade → MCP) or restart it.")
+        change = _plan_json_servers(key, "Windsurf", _windsurf_path(), {"command": exe, "args": _args(root)},
+                                    "Refresh MCP servers in Windsurf (Cascade → MCP) or restart it.")
+        change.summary += (" This is the legacy Windsurf Cascade config; Windsurf is now Devin Desktop, "
+                           "whose default agent reads `connect devin`'s file.")
+        return change
+    if key == "devin":
+        return _plan_json_servers(key, "Devin Desktop / Devin CLI", _devin_path(),
+                                  {"command": exe, "args": _args(root)},
+                                  "Restart Devin Desktop (or devin); `devin mcp list` shows the server.")
     if key == "lmstudio":
         return _plan_json_servers(key, "LM Studio", _lmstudio_path(), {"command": exe, "args": _args(root)},
                                   "Restart LM Studio; use a tool-capable model to call the netconverter tools.")
@@ -506,8 +544,10 @@ def plan(key: str, root: Path) -> Change:
                       preview, apply=write)
     if key == "codex":
         path = _codex_path()
+        # Codex clears the server's environment; env_vars forwards these by name (values stay in yours).
+        forward = [*BRIDGE_ENV, "DBUS_SESSION_BUS_ADDRESS"]
         block = (f"\n[mcp_servers.{SERVER_NAME}]\ncommand = {json.dumps(exe)}\n"
-                 f"args = {json.dumps(_args(root))}\n")
+                 f"args = {json.dumps(_args(root))}\nenv_vars = {json.dumps(forward)}\n")
         if SERVER_NAME in _codex_servers():
             return Change(key, "Codex CLI", str(path), f"{path} already has [mcp_servers.{SERVER_NAME}].",
                           block.strip(), can_apply=False,

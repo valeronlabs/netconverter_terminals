@@ -237,8 +237,35 @@ class Guided:
                                    ('routing_engine', 'routing_engines', 'Routing engine'),
                                    ('pipeline_mode', 'pipeline_modes', 'Conversion mode')])
             else:
-                self.review()
+                self.full_settings()
         self.choose(f'Convert {self.catalog.name(source)} to', self.catalog.grouped(targets), chosen)
+
+    def full_settings(self):
+        """Full API (#19): the same Advanced and Zone screens, sent as a YAML v2 document.
+
+        Every setting is optional here: the defaults choice sends no decisions at all,
+        and only settings ``job_options`` maps for this target are asked.
+        """
+        def answer(customize):
+            if not customize:
+                self.review()
+            elif self.options['target_vendor'] == 'palo_alto_panorama':
+                self.optional_text('Panorama device group (Enter for the server default)',
+                                   'panorama_device_group',
+                                   lambda: self.optional_text('Panorama template (Enter for the server default)',
+                                                              'panorama_template', self.cleanup))
+            else:
+                self.cleanup()
+        self.choose('Conversion settings', [('Use NetConverter’s defaults', False),
+                                            ('Customize cleanup, App-ID, profiles, logging and zone mapping',
+                                             True)], answer)
+
+    def optional_text(self, title, field, following):
+        def answer(value):
+            if value.strip():
+                self.options[field] = value.strip()
+            following()
+        self.text(title, answer)
 
     def quick_fields(self, fields):
         """Pilot keys: the pilot API requires these Palo Alto settings explicitly."""
@@ -276,6 +303,9 @@ class Guided:
     def cleanup(self):
         def answer(value):
             self.options['remove_unused_objects'] = value
+            if self.catalog.profile != 'quick':  # full API: already chose to customize
+                self.advanced()
+                return
             self.choose('Advanced settings', [('Use the selected mode’s server presets', False),
                                               ('Customize App-ID, profiles, logging and mappings', True)],
                         lambda customize: self.advanced() if customize else self.review())
@@ -283,16 +313,20 @@ class Guided:
                     [('Keep existing objects', False), ('Remove verified unused objects', True)], answer)
 
     def advanced(self, index=0):
+        preset = 'Use mode preset' if self.catalog.profile == 'quick' else 'Use the server default'
         choices = [
-            ('enable_appid', 'App-ID', [('Use mode preset', None), ('Enable', True), ('Disable', False)]),
+            ('enable_appid', 'App-ID', [(preset, None), ('Enable', True), ('Disable', False)]),
             ('app_id_implementation', 'App-ID implementation',
-             [('Use mode preset', None), ('Stack above original', 'dual_stack'), ('Replace original', 'force')]),
-            ('add_security_profiles', 'Security profiles', [('Use mode preset', None), ('Enable', True), ('Disable', False)]),
-            ('log_all_rules', 'Log all rules', [('Use mode preset', None), ('Enable', True), ('Disable', False)]),
+             [(preset, None), ('Stack above original', 'dual_stack'), ('Replace original', 'force')]),
+            ('add_security_profiles', 'Security profiles', [(preset, None), ('Enable', True), ('Disable', False)]),
+            ('log_all_rules', 'Log all rules', [(preset, None), ('Enable', True), ('Disable', False)]),
             ('implicit_deny', 'Explicit deny-all',
-             [('Use mode preset', None), ('Enable', 'explicit-deny-all'), ('Disable', 'none')])]
+             [(preset, None), ('Enable', 'explicit-deny-all'), ('Disable', 'none')])]
         if index == len(choices):
-            self.text('Security profile group (Enter to use preset)', self.profile_group)
+            if str(self.options.get('target_vendor', '')).startswith('palo_alto'):
+                self.text('Security profile group (Enter to use preset)', self.profile_group)
+            else:  # a profile group is a Palo Alto setting; job_options refuses it elsewhere
+                self.profile_group('')
             return
         field, title, options = choices[index]
 

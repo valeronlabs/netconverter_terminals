@@ -116,6 +116,8 @@ async def test_fortigate_to_palo_alto_goes_through_full_api(tmp_path):
         assert app.question == 'Convert Fortinet FortiGate to'
         await choose(app, pilot)  # Palo Alto (XML)
         assert 'Palo Alto (XML)' in history(app)
+        assert app.question == 'Conversion settings'  # #19: the full API offers Advanced/Zone too
+        await choose(app, pilot)  # NetConverter's defaults: no decisions document
         assert app.question == 'Submit this job?'
         await choose(app, pilot)
         body = posts(server)[0]

@@ -11,7 +11,7 @@ from pathlib import Path
 from .api import Client, DEFAULT_BASE, APIError
 from .backend import detect_profile, open_client
 from .credentials import (KeyringLocked, get_secret, keyring_available, keyring_problem, load_secret,
-                          save_secret)
+                          save_secret, store_label)
 from .controller import Controller
 from .providers import Provider, ProviderError
 from .commands import execute
@@ -146,7 +146,7 @@ def clerk_login(args, settings):
                   "registered redirect URI for this OAuth application.", file=sys.stderr)
         raise SystemExit(1) from None
     print(json.dumps({"signed_in": True, "method": "clerk", **profile,
-                      "credential_storage": "OS credential store"}, ensure_ascii=False))
+                      "credential_storage": store_label()}, ensure_ascii=False))
 
 
 def logout(args):
@@ -163,7 +163,8 @@ def whoami(args):
     from .clerk import ClerkError, profile_summary
 
     out = {"server": args.server, "api_key_stored": bool(load_secret(account(args.server))),
-           "api_key_in_environment": bool(os.environ.get("NETCONVERTER_API_KEY"))}
+           "api_key_in_environment": bool(os.environ.get("NETCONVERTER_API_KEY")),
+           "credential_store": store_label()}
     session = _clerk_session()
     if session is None:
         out["clerk"] = None
@@ -582,7 +583,10 @@ def parser():
     method.add_argument("--clerk", action="store_true", help="sign in with your NetConverter account (browser)")
     method.add_argument("--key", action="store_true", help="store an API key (the default)")
     login.add_argument("--device", action="store_true", help="Clerk sign-in with a device code (headless machines)")
-    logout = subs.add_parser("logout", help="remove the Clerk sign-in from the OS credential store")
+    login.add_argument("--store", choices=["auto", "keyring", "file"],
+                       help="where to keep it: the OS keyring, or the passphrase-encrypted file "
+                            "(default auto: the keyring when available; NETCONVERTER_CREDENTIAL_STORE)")
+    logout = subs.add_parser("logout", help="remove the Clerk sign-in from the credential store")
     logout.add_argument("--all", action="store_true", help="also remove the stored API key for this server")
     subs.add_parser("whoami", help="show the signed-in account (never prints tokens)")
     mcp = subs.add_parser("mcp", help="run the local stdio MCP server for AI clients")
@@ -719,6 +723,8 @@ def _main(argv=None):
     args.server = args.server or saved_server or DEFAULT_BASE
     args.provider = args.provider or settings.get("provider")
     args.model = args.model or settings.get("model")
+    if args.command == "login" and args.store:  # this run only; NETCONVERTER_CREDENTIAL_STORE persists it
+        os.environ["NETCONVERTER_CREDENTIAL_STORE"] = args.store
     if args.command == "login" and args.key and args.device:
         raise CommandError("--device applies to Clerk sign-in; omit --key", EXIT_USAGE)
     if args.command == "login" and (args.clerk or args.device or (not args.key and clerk_preferred(settings))):
@@ -769,7 +775,7 @@ def _main(argv=None):
             json.dumps(
                 {
                     "profile": "full_api" if kind == "external" else "terminal_quick",
-                    "credential_storage": "OS credential store"
+                    "credential_storage": store_label()
                     if stored
                     else "unavailable; enter key for each session",
                 }

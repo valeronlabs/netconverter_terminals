@@ -13,6 +13,14 @@ def _no_real_sign_in(request, monkeypatch):
     monkeypatch.delenv("NETCONVERTER_AUTH", raising=False)
     monkeypatch.delenv("NETCONVERTER_MCP_STRICT", raising=False)
     monkeypatch.delenv("NETCONVERTER_MCP_VIEW", raising=False)
+    # Nor the developer's encrypted credential file or its passphrase (#10); never a prompt.
+    for name in ("NETCONVERTER_CREDENTIAL_STORE", "NETCONVERTER_CREDENTIAL_FILE",
+                 "NETCONVERTER_CREDENTIAL_PASSPHRASE", "NETCONVERTER_CREDENTIAL_PASSPHRASE_FILE"):
+        monkeypatch.delenv(name, raising=False)
+    from netconverter_cli import credential_file
+
+    monkeypatch.setattr(credential_file, "can_prompt", lambda: False)
+    credential_file.forget_keys()
     # The license is accepted for tests unless a test removes this; acceptance
     # records go to a temporary folder, never the developer's real config.
     monkeypatch.setenv("NETCONVERTER_ACCEPT_LICENSE", "1")

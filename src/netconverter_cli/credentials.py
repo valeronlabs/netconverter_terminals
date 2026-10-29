@@ -1,4 +1,10 @@
-"""Credentials never enter workspace files or model messages."""
+"""Credentials never enter workspace files or model messages.
+
+They live in the OS credential store, or, where there is none (an SSH host, a
+container), in the encrypted credential file (``credential_file.py``, #10):
+``NETCONVERTER_CREDENTIAL_STORE`` = ``auto`` (default: the OS keyring when it is
+available, else the encrypted file; reads check both), ``keyring`` or ``file``.
+"""
 
 import getpass
 import os
@@ -61,7 +67,8 @@ def _bounded(call, *args):
     return box.get("value")
 # Only operating-system credential stores are trusted. Third-party keyring
 # backends (plaintext files, encrypted-file backends with a master password on
-# disk) are refused; there is no fallback secrets file.
+# disk) are refused. The one file store is our own encrypted file (#10), used
+# when chosen or when no OS store is reachable; it never holds plaintext.
 _OS_BACKENDS = frozenset(
     {
         "keyring.backends.macOS",
@@ -99,12 +106,149 @@ def session_bus_fallback(environ=None, *, platform=None, uid=None, exists=os.pat
     return None
 
 
+STORE_ENV = "NETCONVERTER_CREDENTIAL_STORE"
+STORES = ("auto", "keyring", "file")
+OS_STORE_LABEL = "OS credential store"
+_warned: set[str] = set()
+
+
+def store_choice() -> str:
+    """auto | keyring | file, from the user's environment (``login --store`` sets it per run)."""
+    value = os.environ.get(STORE_ENV, "auto").strip().lower()
+    return value if value in STORES else "auto"
+
+
+def _file_store():
+    from .credential_file import EncryptedFileStore
+
+    return EncryptedFileStore()
+
+
+def _warn(message: str) -> None:
+    """One stderr line per message per process (never a secret; stdout stays clean for JSON/MCP)."""
+    if message not in _warned:
+        _warned.add(message)
+        print(f"netconverter: {message}", file=sys.stderr)
+
+
+class _Keyring:
+    label = OS_STORE_LABEL
+
+    def __init__(self, backend):
+        self.backend = backend
+
+    def get(self, name):
+        return _bounded(self.backend.get_password, SERVICE, name)
+
+    def set(self, name, value):
+        _bounded(self.backend.set_password, SERVICE, name, value)
+
+    def delete(self, name):
+        if _bounded(self.backend.get_password, SERVICE, name) is not None:
+            _bounded(self.backend.delete_password, SERVICE, name)
+
+
+def _keyring_store():
+    """The OS store wrapped as a store, or None. KeyringLocked propagates."""
+    try:
+        backend = _os_backend()
+    except KeyringLocked:
+        raise
+    except Exception:
+        return None
+    return _Keyring(backend) if backend is not None else None
+
+
+def _read_stores() -> list:
+    choice = store_choice()
+    stores = []
+    if choice in ("auto", "keyring"):
+        found = _keyring_store()
+        if found is not None:
+            stores.append(found)
+    if choice == "file" or (choice == "auto" and _file_store().exists()):
+        stores.append(_file_store())
+    return stores
+
+
+def _write_store():
+    choice = store_choice()
+    if choice == "file":
+        return _file_store()
+    found = _keyring_store()
+    if found is not None or choice == "keyring":
+        return found
+    return _file_store()  # auto, and no OS store reachable
+
+
+def store_in_use() -> str | None:
+    """Where a new credential would be saved: "keyring", "file" or None (nowhere)."""
+    store = _write_store()
+    if store is None:
+        return None
+    return "keyring" if isinstance(store, _Keyring) else "file"
+
+
+def store_label() -> str:
+    """The store a new credential goes to, for messages: never a secret."""
+    store = _write_store()
+    return store.label if store is not None else "none"
+
+
+def prepare_store() -> str:
+    """Check the store a sign-in will be saved to before the sign-in starts.
+
+    Returns its label; raises CredentialStoreError (message safe to show) when
+    nothing can be saved, e.g. the encrypted file has no passphrase. A
+    passphrase prompt (on a terminal) happens here, not after the browser.
+    """
+    from .credential_file import FileStoreError
+
+    store = _write_store()
+    if store is None:
+        raise CredentialStoreError(
+            "No OS credential store is available and NETCONVERTER_CREDENTIAL_STORE=keyring "
+            "rules out the encrypted credential file")
+    if isinstance(store, _Keyring):
+        return store.label
+    try:
+        store.prepare()
+    except FileStoreError as exc:
+        raise CredentialStoreError(
+            ("No OS credential store is available, so the sign-in goes to the encrypted credential "
+             "file. " if store_choice() == "auto" else "") + str(exc)) from None
+    return store.label
+
+
+class CredentialStoreError(RuntimeError):
+    """Nothing can store the credential; the message says why (never a secret)."""
+
+
+def _file_problem() -> str | None:
+    """None when the file store is not involved; "" when it answers; else why it doesn't."""
+    if store_choice() == "keyring":
+        return None
+    store = _file_store()
+    if not store.exists():
+        return None if store_choice() == "auto" else ""
+    if store.unlockable():
+        return ""
+    from .credential_file import passphrase_hint
+
+    return (f"the NetConverter credentials are in the encrypted file {store.path}, which this process "
+            f"cannot open: {passphrase_hint()} (the same passphrase used at sign-in)")
+
+
 def keyring_problem() -> str:
-    """Why no OS credential store is reachable; "" when one is (#17).
+    """Why no credential store is reachable; "" when one is (#17, #10).
 
     Written for the person reading an AI client's tool error: it names the
-    missing D-Bus bus and the keyring backend in use, never a secret.
+    missing D-Bus bus and the keyring backend in use, or the encrypted
+    credential file and the passphrase variable it needs; never a secret.
     """
+    file_problem = _file_problem()
+    if file_problem is not None:
+        return file_problem
     session_bus_fallback()
     try:
         backend = _bounded(keyring.get_keyring)
@@ -150,6 +294,25 @@ def _prompt_text(name: str, label: str | None) -> str:
     return f"{what} (hidden; kept in memory for this run only): "
 
 
+def _stored(name: str) -> str:
+    """The first stored value for ``name``; a file that cannot be opened is reported, not fatal."""
+    from .credential_file import FileStoreError
+
+    for store in _read_stores():
+        try:
+            value = store.get(name)
+        except KeyringLocked:
+            raise
+        except FileStoreError as exc:
+            _warn(str(exc))
+            continue
+        except Exception:
+            continue
+        if value:
+            return value
+    return ""
+
+
 def get_secret(name: str, *, prompt: bool = True, label: str | None = None) -> str:
     value = os.environ.get(
         "NETCONVERTER_API_KEY"
@@ -158,15 +321,7 @@ def get_secret(name: str, *, prompt: bool = True, label: str | None = None) -> s
     )
     if value:
         return value
-    try:
-        backend = _os_backend()
-        if backend is None:
-            return getpass.getpass(_prompt_text(name, label)).strip() if prompt else ""
-        value = _bounded(backend.get_password, SERVICE, name)
-    except KeyringLocked:
-        raise
-    except Exception:
-        value = None
+    value = _stored(name)
     if value:
         return value
     if not prompt:
@@ -175,42 +330,44 @@ def get_secret(name: str, *, prompt: bool = True, label: str | None = None) -> s
 
 
 def save_secret(name: str, value: str) -> bool:
+    from .credential_file import FileStoreError
+
+    store = _write_store()
+    if store is None:
+        return False
     try:
-        backend = _os_backend()
-        if backend is None:
-            return False
-        _bounded(backend.set_password, SERVICE, name, value)
+        store.set(name, value)
         return True
     except KeyringLocked:
         raise
+    except FileStoreError as exc:
+        _warn(str(exc))
+        return False
     except Exception:
         return False
 
 
 def load_secret(name: str) -> str:
     """Read a stored secret without prompting and without environment overrides."""
-    try:
-        backend = _os_backend()
-        if backend is None:
-            return ""
-        return _bounded(backend.get_password, SERVICE, name) or ""
-    except KeyringLocked:
-        raise
-    except Exception:
-        return ""
+    return _stored(name)
 
 
 def delete_secret(name: str) -> bool:
-    """Remove a stored secret; True when nothing remains stored under ``name``."""
-    try:
-        backend = _os_backend()
-        if backend is None:
-            return False
-        if _bounded(backend.get_password, SERVICE, name) is None:
-            return True
-        _bounded(backend.delete_password, SERVICE, name)
-        return True
-    except KeyringLocked:
-        raise
-    except Exception:
+    """Remove a stored secret from every store; True when nothing remains stored under ``name``."""
+    from .credential_file import FileStoreError
+
+    stores = _read_stores()
+    if not stores:
         return False
+    ok = True
+    for store in stores:
+        try:
+            store.delete(name)
+        except KeyringLocked:
+            raise
+        except FileStoreError as exc:
+            _warn(str(exc))
+            ok = False
+        except Exception:
+            ok = False
+    return ok

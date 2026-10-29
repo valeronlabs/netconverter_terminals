@@ -2,8 +2,9 @@
 
 Endpoints are read from the issuer's discovery document at runtime; only the
 issuer, the public client id, the scopes and the loopback callback are fixed
-here. Tokens live only in the OS credential store (``credentials.py``) or in
-memory; they are never written to the workspace, printed, or given to a model.
+here. Tokens live only in the OS credential store, the encrypted credential
+file where there is none (``credentials.py``, #10), or memory; they are never
+written to the workspace or in plaintext, printed, or given to a model.
 """
 
 from __future__ import annotations
@@ -24,7 +25,7 @@ from urllib.parse import parse_qs, urlencode, urlsplit
 
 import httpx
 
-from .credentials import delete_secret, keyring_available, load_secret, save_secret
+from .credentials import CredentialStoreError, delete_secret, load_secret, prepare_store, save_secret
 from .errors import SIGNED_OUT
 
 ISSUER = "https://clerk.netconverter.ai"
@@ -605,11 +606,20 @@ def login(
     *, device: bool = False, issuer: str = ISSUER, transport=None,
     notify=print, open_browser=webbrowser.open, store: TokenStore | None = None,
 ) -> TokenSet:
-    """Sign in and store tokens. Refuses when no OS credential store exists."""
-    if store is None and not keyring_available():
-        raise ClerkError(
-            "No OS credential store is available; Clerk sign-in needs one to keep tokens off disk"
-        )
+    """Sign in and store tokens: the OS credential store, else the encrypted file (#10).
+
+    The store is checked (and a file passphrase asked for) before the sign-in
+    starts, and ``notify`` names it, so a headless box knows where tokens go.
+    """
+    where = None
+    if store is None:
+        try:
+            where = prepare_store()
+        except CredentialStoreError as exc:
+            raise ClerkError(f"Cannot keep a sign-in on this machine: {exc}") from None
+        if not where.startswith("OS"):
+            notify(f"No OS credential store is in use here; the sign-in will be kept in the {where} "
+                   "(encrypted with your passphrase).")
     store = store or TokenStore(issuer)
     with _http(transport) as http:
         disc = discover(http, issuer)
@@ -619,5 +629,5 @@ def login(
             else browser_login(http, disc, open_browser=open_browser, notify=notify)
         )
     if not store.save(tokens):
-        raise ClerkError("Could not save the sign-in to the OS credential store")
+        raise ClerkError(f"Could not save the sign-in to the {where or 'credential store'}")
     return tokens

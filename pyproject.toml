@@ -29,7 +29,8 @@ classifiers = [
   "Topic :: System :: Networking :: Firewalls",
   "Topic :: Utilities",
 ]
-dependencies = ["httpx==0.28.1", "textual==8.2.8", "keyring==25.7.0", "pydantic==2.13.5"]
+dependencies = ["httpx==0.28.1", "textual==8.2.8", "keyring==25.7.0", "pydantic==2.13.5",
+                "cryptography==50.0.2"]
 
 [project.urls]
 Homepage = "https://netconverter.ai"

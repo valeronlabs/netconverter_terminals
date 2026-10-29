@@ -95,7 +95,7 @@ Step-by-step guides for every assistant (Claude, ChatGPT, Cursor, Gemini CLI, Co
 [docs/connect](docs/connect/README.md).
 
 ```sh
-netconverter connect claude-code    # or claude-desktop, cursor, vscode, codex, gemini, windsurf, lmstudio
+netconverter connect claude-code    # or claude-desktop, cursor, vscode, codex, gemini, devin, windsurf, lmstudio
 netconverter connect --all          # every assistant found on this computer
 netconverter connect chatgpt        # ChatGPT / claude.ai: remote-connector setup steps
 ```

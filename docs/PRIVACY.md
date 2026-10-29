@@ -146,12 +146,68 @@ mismatches; it does not replace trust in the server producing the artifacts.
 
 ## Credentials and local state
 
-The supported OS credential store holds API keys when available; the client
-refuses plaintext keyring backends. Otherwise keys are entered for the session
-and held in memory. On macOS, the Keychain service is `NetConverter Terminal` (kept under that name
+The supported OS credential store holds API keys and the sign-in when available;
+the client refuses plaintext keyring backends. Without one, they go to the
+passphrase-encrypted credential file below, or, when you give no passphrase, are
+entered for the session and held in memory. On macOS, the Keychain service is `NetConverter Terminal` (kept under that name
 since 0.1.x so saved credentials survive the rename to NetConverter CLI).
 Server accounts are scoped to the server URL; model accounts are provider names.
 Credentials are never written into `.netconverter/`.
+
+### Encrypted credential file (headless machines)
+
+An SSH host, a container or a server without a desktop session usually has no OS
+credential store (no Secret Service on D-Bus), so a sign-in there used to last only
+for one run. The client can now keep the sign-in, and stored API keys, in an
+**encrypted credential file** instead:
+
+| `NETCONVERTER_CREDENTIAL_STORE` | Where new credentials go | Reads |
+| --- | --- | --- |
+| `auto` (default) | The OS credential store when it is available; otherwise the encrypted file | Both |
+| `keyring` | The OS credential store only; never a file | The OS store |
+| `file` | The encrypted file, even when an OS store exists | The file |
+
+`netconverter login --store file|keyring|auto` chooses for one sign-in; set the
+variable to keep the choice. `login` prints the store it used
+(`credential_storage`), names it on stderr before a sign-in that goes to the file,
+and `whoami` shows it (`credential_store`).
+
+- **Where:** `credentials.enc` in your user config folder
+  (`~/.config/netconverter/` on Linux, `~/Library/Application Support/netconverter/`
+  on macOS, `%APPDATA%\netconverter\` on Windows), or `NETCONVERTER_CREDENTIAL_FILE`.
+  Written atomically with mode `0600` in a `0700` folder.
+- **How:** AES-256-GCM (authenticated encryption) with a key derived from your
+  passphrase by scrypt (N=2^15, r=8, p=1, random 16-byte salt), using the pyca
+  `cryptography` library. Each write uses a fresh random nonce, the file's header
+  is authenticated with the ciphertext, and the entry names are encrypted with the
+  values: the file names no account, host or token.
+- **Passphrase:** at least 12 characters, from `NETCONVERTER_CREDENTIAL_PASSPHRASE`,
+  from the file named by `NETCONVERTER_CREDENTIAL_PASSPHRASE_FILE` (a Docker or
+  Kubernetes secret, a systemd credential), or typed at a hidden prompt on a
+  terminal (twice when the file is created). It is never written anywhere by the
+  client; the derived key stays in memory for the one process.
+- **AI clients:** the bridge (`netconverter mcp`) cannot prompt, so an assistant
+  that starts it needs the passphrase variable in the server's `env`. Without it the
+  bridge reports that the credentials are in the encrypted file and which variable
+  it needs. There is no way to recover a forgotten passphrase: remove the file and
+  sign in again.
+
+**What it protects against:** a copy of the file on its own, such as a backup, a
+disk image, a synced or shared home folder, or another local user who can read the file
+despite its mode. Without the passphrase they get ciphertext, and scrypt makes
+guessing a strong passphrase expensive. Tampering is detected and the file is refused.
+
+**What it does not protect against:** anyone or anything that can run as you on
+that machine while the passphrase is available. That includes malware in your
+account, an administrator or root, and any process that can read your environment
+or the passphrase file. A passphrase kept in a shell profile or an unprotected file
+beside `credentials.enc` reduces the protection to the file permissions alone. A
+weak passphrase can be guessed offline from a stolen copy. The file does not protect
+tokens in memory while the client runs, and it does not stop a stolen, still-valid
+token from being used: sign out (`netconverter logout --all`) or revoke the key.
+This file is weaker than an OS credential store, which ties secrets to your login
+session and hardware where it can, so `auto` uses the file only when no OS store is
+reachable. Surviving a reboot on a headless host is a tester acceptance step.
 
 The workspace contains non-secret connection preferences, filenames, revision
 hashes, job handles, and retry metadata. Some structured conversion decisions can
