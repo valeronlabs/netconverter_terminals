@@ -28,6 +28,7 @@ from .clerk import ClerkError
 from .controller import fetch_artifacts
 from .credentials import keyring_problem
 from . import errors, job_options, mcp_workflows
+from . import exposure as _exposure
 from .drafts import DraftClient, DraftService
 from .privacy import STATUSES
 from .remote_mcp import RemoteError, RemoteMCP
@@ -124,6 +125,45 @@ def strict_refusal(name: str, arguments: dict) -> str | None:
     if name == "fetch" and not str(args.get("id", "")).startswith("kb:"):
         return "only kb:<doc_id> can be fetched in strict mode"
     return None
+
+
+def level_refusal(name: str, arguments: dict, exposure) -> str | None:
+    """The strict view's refusal, unless a section chosen under ``selected`` lifts it (#13)."""
+    refusal = strict_refusal(name, arguments)
+    return None if refusal and exposure.lifts(name, arguments) else refusal
+
+
+def apply_exposure(result: dict, exposure) -> dict:
+    """Filter one tool result to the exposure level (#13), structuredContent and text alike.
+
+    Secrets go at every level; ``none`` keeps verdicts, statuses, counts and ids.
+    A text item that is JSON is filtered as data; other text is secret-stripped,
+    or withheld entirely under ``none``.
+    """
+    if not isinstance(result, dict):
+        return result
+    out = dict(result)
+    if "structuredContent" in out:
+        out["structuredContent"] = _exposure.project(out["structuredContent"], exposure)
+    content = []
+    for item in out.get("content") or []:
+        if isinstance(item, dict) and item.get("type") == "text" and isinstance(item.get("text"), str):
+            try:
+                parsed = json.loads(item["text"])
+            except ValueError:
+                text = _exposure.WITHHELD if exposure.level == "none" else _exposure.strip_secrets(item["text"])
+            else:
+                projected = _exposure.project(parsed, exposure)
+                text = item["text"] if projected == parsed else json.dumps(projected)
+            item = {**item, "text": text}
+        elif exposure.level == "none":
+            continue  # images, embedded resources: not a verdict or a count
+        else:
+            item = _exposure.strip_secrets(item)
+        content.append(item)
+    if "content" in out:
+        out["content"] = content
+    return out
 
 
 _HEX4 = r"[0-9A-Fa-f]{1,4}"
@@ -330,7 +370,8 @@ class Bridge:
 
     def __init__(self, workspace, server: str, rest_credential=None, remote: RemoteMCP | None = None,
                  *, transport=None, strict: bool = False, credential_source: str | None = None,
-                 guided: bool = False, draft_service=None, credential_loader=None):
+                 guided: bool = False, draft_service=None, credential_loader=None,
+                 level: str | None = None, sections=(), workspace_level: bool = False):
         self.workspace = Workspace(workspace)
         # Called again while there is no credential, so a sign-in made after the
         # bridge started is used on the next call (#21). Returns choose_mcp_credential's tuple.
@@ -339,9 +380,15 @@ class Bridge:
         # api_key_stored or none; the same one serves REST and the remote tools.
         self.credential_source = credential_source
         self.guided = bool(guided)
-        self.strict = bool(strict or guided)
+        # Exposure level (#13). ``level`` is the most this process may serve (from
+        # --level/--strict/--full); with ``workspace_level`` the folder's own level,
+        # re-read on every call, caps it, so lowering it takes effect at once. Without
+        # ``level`` the legacy ``strict`` flag decides (strict = masked).
+        cap = _exposure.Exposure(_exposure.normalize(level) if level else ("masked" if strict else "full"),
+                                 tuple(sections or ()))
+        self._level_cap = _exposure.lower(cap, _exposure.Exposure("masked")) if self.guided else cap
+        self._workspace_level = bool(workspace_level)
         self._draft_service = draft_service
-        self.remote_allowlist = REMOTE_TOOLS_STRICT if self.strict else REMOTE_TOOLS_DEFAULT
         self.server = server
         self.rest_credential = rest_credential
         self.remote = remote
@@ -384,6 +431,32 @@ class Bridge:
         except APIError as exc:
             raise _api_failure(exc) from None
         return self._profile
+
+    @property
+    def exposure(self):
+        if not self._workspace_level:
+            return self._level_cap
+        return _exposure.lower(_exposure.load(self.workspace.root), self._level_cap)
+
+    @property
+    def strict(self) -> bool:
+        return self.exposure.strict
+
+    @property
+    def remote_allowlist(self) -> frozenset:
+        exposure = self.exposure
+        if not exposure.strict:
+            return REMOTE_TOOLS_DEFAULT
+        return REMOTE_TOOLS_STRICT | (exposure.section_tools() & REMOTE_TOOLS_DEFAULT)
+
+    def _sync_view(self, exposure) -> None:
+        """Send the level in force on every remote request (X-NetConverter-View, #13)."""
+        if self.remote is None or getattr(self.remote, "view_mode", None) is None:
+            return
+        if self.remote.view_mode != exposure.level:
+            self.remote.view_mode = exposure.level
+            self.remote._account_view = None  # the server's view in force may differ now
+            self._server_view = None
 
     def _log(self, tool: str, **fields) -> None:
         activity.record(self.workspace.state_dir, client=self.client_name, tool=tool, **fields)
@@ -562,6 +635,7 @@ class Bridge:
         return {"status": status, "signed_in": False, "message": str(failure),
                 "client_version": __version__, "update_available": state["update_available"],
                 "latest_version": state["latest"], "strict_mode": self.strict,
+                "exposure_level": self.exposure.level, "exposure_sections": list(self.exposure.sections),
                 "credential_source": self.credential_source or "none"}
 
     def account(self):
@@ -612,6 +686,10 @@ class Bridge:
                 out["job_types"] = sorted({t for t in advertised if t in JOB_TYPES} & set(job_types)) or out["job_types"]
         state = update.status()
         view = self.server_view()
+        exposure = self.exposure
+        out.update(exposure_level=exposure.level, exposure_sections=list(exposure.sections))
+        details = getattr(self.remote, "view_details", None) or {}
+        out.update({k: v for k, v in details.items() if k in {"view_mode_grant", "view_clamped"}})
         out.update(client_version=__version__, update_available=state["update_available"],
                    latest_version=state["latest"], strict_mode=self.strict,
                    credential_source=self.credential_source, view_mode=view,
@@ -694,6 +772,7 @@ class Bridge:
         """
         if self.remote is None:
             return None
+        self._sync_view(self.exposure)
         if self._server_view is None:
             try:
                 self._server_view = self.remote.account_view() or ""
@@ -702,9 +781,9 @@ class Bridge:
         view = self._server_view or None
         if self.strict and view != "strict" and not self._view_warned:
             self._view_warned = True
-            print(f"netconverter mcp --strict: the server's view mode for this account is "
-                  f"{view or 'unknown'}, not strict (an administrator sets it on the MCP grant; the "
-                  "strict request is sent on every call). Until the server applies it, this bridge "
+            print(f"netconverter mcp (exposure level {self.exposure.level}): the server's view mode for "
+                  f"this account is {view or 'unknown'}, not strict (an administrator sets it on the MCP "
+                  "grant; the level is sent on every call). Until the server applies it, this bridge "
                   "refuses configuration-content calls and masks addresses in every remote result; "
                   "names in summaries are NOT tokenised locally.", file=sys.stderr)
         return view
@@ -816,7 +895,7 @@ class Bridge:
             payload = mcp_workflows.error("approval_required", "Guided mode requires the approved draft execution path")
         else:
             payload = mcp_workflows.error("unsupported_capability", "This tool is unavailable in guided mode; call tools/list")
-        return mcp_workflows.tool_result(payload)
+        return mcp_workflows.tool_result(_exposure.strip_secrets(payload))
 
     def resource_templates(self):
         return mcp_workflows.templates_for(self._guided_request("capabilities", {})) if self.guided else []
@@ -834,6 +913,8 @@ class Bridge:
         self._remote_names = {}
         if self.remote is None:
             return tools
+        allowlist = self.remote_allowlist
+        self._sync_view(self.exposure)
         try:
             remote_tools = self.remote.list_tools()
         except RemoteError as exc:
@@ -841,7 +922,7 @@ class Bridge:
             return tools
         for tool in remote_tools:
             name = tool["name"]
-            if not remote_allowed(name, self.remote_allowlist):
+            if not remote_allowed(name, allowlist):
                 continue
             local_name = f"remote_{name}" if name in LOCAL_NAMES else name
             if local_name in LOCAL_NAMES or local_name in self._remote_names:
@@ -864,6 +945,7 @@ class Bridge:
                 return _error_result(exc.code, str(exc), **exc.extra)
             except ClerkError as exc:
                 return _error_result("not_signed_in", str(exc))
+            result = _exposure.strip_secrets(result)  # local results carry none; belt and braces
             return {
                 "content": [{"type": "text", "text": json.dumps(result, sort_keys=True)}],
                 "structuredContent": result,
@@ -872,14 +954,17 @@ class Bridge:
         if self.remote is not None and not self._remote_names:
             self.list_tools()
         remote_name = self._remote_names.get(name)
+        exposure = self.exposure
         if remote_name is None or self.remote is None or not remote_allowed(remote_name, self.remote_allowlist):
             return _error_result("unknown_tool", f"Unknown tool '{name}'; call tools/list")
-        if not self.strict:
+        self._sync_view(exposure)
+        if not exposure.strict:
             try:
-                return self.remote.call_tool(remote_name, arguments)  # remote summaries, as-is
+                result = self.remote.call_tool(remote_name, arguments)  # remote summaries, as served
             except RemoteError as exc:
                 return _error_result(re.sub(r"[^a-z0-9_]", "", str(exc.code).lower()) or "remote_error", str(exc))
-        refusal = strict_refusal(remote_name, arguments)
+            return apply_exposure(result, exposure)  # secrets never reach the model
+        refusal = level_refusal(remote_name, arguments, exposure)
         if refusal:  # before any network call, whatever view the server applies
             return _error_result("strict_mode", refusal)
         self.server_view()
@@ -888,7 +973,8 @@ class Bridge:
         except RemoteError as exc:
             return _error_result(re.sub(r"[^a-z0-9_]", "", str(exc.code).lower()) or "remote_error",
                                  _mask_text(str(exc)))
-        return mask_addresses(result)  # defence in depth: the server's strict view masks too
+        # Defence in depth: the server's strict view masks too; then the level's own filter.
+        return apply_exposure(mask_addresses(result), exposure)
 
 
 def _error_result(code: str, message: str, **extra) -> dict:

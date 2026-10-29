@@ -706,7 +706,8 @@ def test_account_returns_only_allowlisted_fields(workspace, monkeypatch):
                        "rate_limit_per_min": 60, "daily_quota": 200, "auth_kind": "api_key",
                        "client_version": __version__, "update_available": True,
                        "latest_version": "9.9.9", "strict_mode": False, "credential_source": None,
-                       "view_mode": None, "strict_enforced_by": None}
+                       "view_mode": None, "strict_enforced_by": None,
+                       "exposure_level": "full", "exposure_sections": []}  # #13
     wire = json.dumps(result)
     for secret in ("pilot@example.test", "SECRET_TOKEN_VALUE", "nck_ab", "tenant-synthetic", "k1"):
         assert secret not in wire

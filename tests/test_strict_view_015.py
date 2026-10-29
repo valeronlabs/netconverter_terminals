@@ -71,7 +71,8 @@ def test_strict_asks_the_server_for_the_strict_view_on_every_request(tmp_path):
     bridge, server = strict_bridge(tmp_path)
     bridge.list_tools()
     bridge.call("get_report", {"job_id": "j"})
-    assert server.requests and all(r.headers.get("X-NetConverter-View") == "strict" for r in server.requests)
+    # #13: the header carries the exposure level; the server serves masked as its strict view.
+    assert server.requests and all(r.headers.get("X-NetConverter-View") == "masked" for r in server.requests)
     bridge, server = strict_bridge(tmp_path, strict=False)
     bridge.list_tools()
     assert server.requests and all("X-NetConverter-View" not in r.headers for r in server.requests)

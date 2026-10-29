@@ -20,7 +20,11 @@ MAX_RESPONSE_BYTES = 8 * 1024 * 1024
 # The server's view modes (External MCP access grants). The bridge may ask the
 # server to LOWER the grant's view for this session; it can never raise it.
 VIEW_MODES = ("default", "strict", "full_addresses")
+# The exposure levels (#13) the bridge sends since aws#776: the server applies
+# min(grant, level): none/masked/selected are served as strict, full as default.
+VIEW_LEVELS = ("none", "masked", "selected", "full")
 VIEW_HEADER = "X-NetConverter-View"
+VIEW_FIELDS = ("view_mode", "view_mode_grant", "view_level_requested", "view_clamped")
 
 
 class RemoteError(RuntimeError):
@@ -36,10 +40,11 @@ def _short(value, limit=300) -> str:
 class RemoteMCP:
     def __init__(self, url: str, credential, *, transport=None, client_version="0", view_mode=None):
         self.url = check_url(url)
-        if view_mode is not None and view_mode not in VIEW_MODES:
+        if view_mode is not None and view_mode not in VIEW_MODES + VIEW_LEVELS:
             raise ValueError("Unknown view mode")
-        self.view_mode = view_mode  # requested on every request (#15); the server decides
+        self.view_mode = view_mode  # requested on every request (#15, #13); the server decides
         self._account_view: str | None = None
+        self.view_details: dict = {}  # get_account's view fields, once known
         self.http = httpx.Client(
             timeout=90,
             auth=BearerAuth(as_credential(credential)),
@@ -192,7 +197,41 @@ class RemoteMCP:
         if self._account_view is None:
             payload = self.call_tool("get_account", {})
             self._account_view = _view_mode_of(payload) or ""
+            self.view_details = _view_fields_of(payload)
         return self._account_view or None
+
+
+def _view_fields_of(payload) -> dict:
+    """get_account's view fields (aws#776), each only when it has the documented shape."""
+    out = {}
+    for data in _account_data(payload):
+        for field in ("view_mode", "view_mode_grant"):
+            if data.get(field) in VIEW_MODES:
+                out.setdefault(field, data[field])
+        if data.get("view_level_requested") in VIEW_LEVELS + VIEW_MODES:
+            out.setdefault("view_level_requested", data["view_level_requested"])
+        if isinstance(data.get("view_clamped"), bool):
+            out.setdefault("view_clamped", data["view_clamped"])
+    return out
+
+
+def _account_data(payload) -> list[dict]:
+    candidates = []
+    if isinstance(payload, dict):
+        candidates.append(payload.get("structuredContent"))
+        for item in payload.get("content") or []:
+            if isinstance(item, dict) and isinstance(item.get("text"), str):
+                try:
+                    candidates.append(json.loads(item["text"]))
+                except ValueError:
+                    continue
+    out = []
+    for candidate in candidates:
+        data = candidate.get("data") if isinstance(candidate, dict) else None
+        data = data if isinstance(data, dict) else candidate
+        if isinstance(data, dict):
+            out.append(data)
+    return out
 
 
 def _view_mode_of(payload) -> str | None:
