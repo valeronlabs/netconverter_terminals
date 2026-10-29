@@ -100,6 +100,7 @@ HELP_SECTIONS = [
         ('/model', 'Connect a model for plain-language questions here'),
     ]),
     ('Session', [
+        ('/walkthrough [STEP]', 'A short tour: jobs, privacy, AI integrations'),
         ('/allowance', 'Refresh server capabilities and limits'),
         ('/clear  /home', 'Clear the conversation · show the start card'),
     ]),
@@ -131,6 +132,25 @@ def folder_view(listing):
         hint = 'Outside the current folder · /cd there before opening files'
     rows += [Text(''), literal(hint, MUTED)]
     return card(listing['folder'], Group(*rows))
+
+
+def walkthrough_view(index):
+    """One step of the guided tour as a card; commands in the accent color."""
+    from .walkthrough import STEPS
+
+    title, lines = STEPS[index]
+    body = []
+    for line in lines:
+        if line.startswith('$ '):
+            body.append(literal('  ' + line[2:], ACCENT))
+        elif line.startswith('/'):
+            body.append(literal('  ' + line, ACCENT))
+        else:
+            body.append(literal(line, FG))
+    footer = (f'/walkthrough {index + 2} for the next step' if index + 1 < len(STEPS)
+              else 'That is the tour. /help lists every command.')
+    body += [Text(''), literal(footer, MUTED)]
+    return card(f'Walkthrough {index + 1}/{len(STEPS)} · {title}', Group(*body))
 
 
 def help_view():

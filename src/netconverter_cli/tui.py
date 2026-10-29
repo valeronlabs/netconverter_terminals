@@ -18,7 +18,8 @@ from .catalog import label
 from .commands import execute
 from .palette import ACCENT, BG, BORDER, DIM, ERROR, FG, MUTED, PANEL, SUCCESS, SURFACE, WARNING
 from .presentation import (activity_line, activity_view, ago, artifacts_view, badge, card,
-                           commands_table, details_view, help_view, jobs_view, literal)
+                           commands_table, details_view, help_view, jobs_view, literal,
+                           walkthrough_view)
 from .providers import ProviderError
 from .workspace import WorkspaceError
 
@@ -116,11 +117,23 @@ class Terminal(App):
                 ('/optimize', 'Cleanup and optimization findings'),
                 ('/jobs', 'Your server jobs'),
                 ('/activity', 'What your AI assistant did here'),
+                ('/walkthrough', 'A short tour of how it all works'),
                 ('/help', 'Every command')]
         self.write(card('Start', Group(commands_table(rows), Text(''),
                                        literal('Your AI can drive this too: /connect wires Claude Code, Claude Desktop, Cursor, '
                                                'VS Code or Codex to this folder. Configurations go straight to '
                                                'NetConverter; the AI sees paths and summaries.', MUTED))))
+
+    def walkthrough(self, argument):
+        from .walkthrough import STEPS
+
+        if not argument:
+            self.write(walkthrough_view(0))
+            return
+        if argument.isdigit() and 1 <= int(argument) <= len(STEPS):
+            self.write(walkthrough_view(int(argument) - 1))
+            return
+        self.show_error(f'Use /walkthrough or /walkthrough 1-{len(STEPS)}.')
 
     def folder_command(self, command, argument):
         from .presentation import folder_view
@@ -341,6 +354,9 @@ class Terminal(App):
             return
         if text == '/help':
             self.write(help_view())
+            return
+        if command == '/walkthrough':
+            self.walkthrough(text[len(command):].strip())
             return
         if command in {'/cd', '/ls', '/dir', '/pwd'}:
             self.folder_command(command, text[len(command):].strip())
