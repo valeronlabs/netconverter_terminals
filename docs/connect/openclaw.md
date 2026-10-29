@@ -14,12 +14,13 @@ What it runs after you answer yes:
 
 ```sh
 openclaw mcp add netconverter --command /path/to/netconverter \
-  --arg mcp --arg --workspace --arg ~/migrations --arg --strict
+  --arg mcp --arg --workspace --arg ~/migrations
 openclaw mcp doctor netconverter --probe
 ```
 
-- **Strict view** is written explicitly, as for every assistant. Use `--full` in the args
-  only if you want OpenClaw to see the wider set.
+- **No view flag:** the folder's exposure level decides what OpenClaw sees (default masked;
+  `netconverter privacy level`). `netconverter privacy apply --client openclaw` prints the tool
+  policy that keeps OpenClaw's own `read`/`exec` tools out of the folder.
 - **Idempotent.** Re-running with the same folder changes nothing. A `netconverter` entry
   pointing elsewhere is replaced (`openclaw mcp unset netconverter`, then `add`) after you
   confirm. `--remove` runs `openclaw mcp unset netconverter`.

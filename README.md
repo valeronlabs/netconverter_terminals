@@ -109,15 +109,19 @@ Then ask your assistant, for example: *"Validate edge-fw.conf and tell me what i
 
 Bridge tools: `submit_file`, `job_status`, `wait_for_job`, `account`, `download`,
 plus an allowlist of NetConverter's read-only tools (reports, evidence, NAT, flows,
-knowledge base). The bridge serves the **strict view** by default (summaries, names as
-tokens, no configuration content); `netconverter mcp --full` offers the wider set, and
-`connect` writes `--strict` for every assistant. Job `options` from an assistant pass an
+knowledge base). What the assistant sees is this folder's **exposure level**
+(`netconverter privacy level none|masked|selected|full`, default **masked**: the strict view,
+names as tokens, addresses masked, no configuration content); secrets are removed at every
+level, and raising the level needs a confirmation typed in a terminal (docs/PRIVACY.md).
+`netconverter privacy apply --client claude-code` (also cursor, gemini; codex and openclaw
+print the settings) keeps the assistant's own file tools out of the folder. Job `options` from an assistant pass an
 allowlist with type checks: an unknown or reserved key (the file, vendors, job type, a
 decisions document) is refused naming it, never silently sent.
 
-**Upgrading from 0.4.x:** if your assistant relied on the wider default view, add
-`--full` to its `netconverter mcp` command (or set `NETCONVERTER_MCP_VIEW=full` where it
-starts the bridge).
+**Upgrading from 0.4.x:** `--full` (or `NETCONVERTER_MCP_VIEW=full`) no longer widens the
+view on its own; run `netconverter privacy level full` in a terminal for the folder. Run
+`netconverter connect <assistant>` again to drop the `--strict` that 0.4.4 wrote, which would
+hold the assistant at masked.
 
 Inside the app, `/activity` and the header's **Bridge** pill show what your AI did
 through the bridge — paths, sizes, SHA-256 and job IDs only.
