@@ -99,13 +99,17 @@ REMOTE_TOOLS_DEFAULT = frozenset({
     "get_vpn_summary", "get_zone_summary", "kb_explain", "kb_search", "list_jobs",
     "list_objects_with_attribute", "list_rules_matching", "query_ir", "search",
     "select_job", "simulate_flow", "vendor_capability_lookup",
+    "get_mapping_questions", "validate_mapping", "apply_mapping_answers",
 })
+# Guided mapping (aws#774, #12): decision-only questions whose configuration names are
+# server tokens; the server resolves them, so they are listed in the strict view too.
+MAPPING_TOOLS = frozenset({"get_mapping_questions", "validate_mapping", "apply_mapping_answers"})
 # The server's strict view mode: summaries with names as <name:…> tokens.
 # `netconverter mcp --strict` proxies only these, whatever the server advertises.
 REMOTE_TOOLS_STRICT = frozenset({
     "list_jobs", "select_job", "get_account", "search", "fetch", "kb_search", "kb_explain",
     "vendor_capability_lookup", "get_job_brief", "get_evidence", "get_report",
-})
+}) | MAPPING_TOOLS
 assert REMOTE_TOOLS_STRICT <= REMOTE_TOOLS_DEFAULT
 
 
@@ -405,6 +409,8 @@ class Bridge:
         # Set by the stdio server while submit_file runs for a client with form elicitation (#20):
         # called with the upload's path/size/hash, returns accept/decline/cancel, or None to proceed.
         self.confirm_upload = None
+        # The same for apply_mapping_answers (#12): asked before a re-conversion is queued.
+        self.confirm_apply = None
         self._sleep, self._clock = time.sleep, time.monotonic
         self.client_name = ""  # the AI client's own name from initialize, for the activity log
 
@@ -976,6 +982,20 @@ class Bridge:
         exposure = self.exposure
         if remote_name is None or self.remote is None or not remote_allowed(remote_name, self.remote_allowlist):
             return _error_result("unknown_tool", f"Unknown tool '{name}'; call tools/list")
+        if remote_name in MAPPING_TOOLS and exposure.level == "none":
+            return _error_result(
+                "level_none", "Guided mapping needs this folder at the masked level or higher: questions name "
+                "zones and interfaces as tokens, and `none` returns summaries only. Raise it in a terminal with "
+                "`netconverter privacy level masked`, then retry.")
+        if remote_name == "apply_mapping_answers" and self.confirm_apply is not None:
+            answers = arguments.get("answers") if isinstance(arguments, dict) else None
+            decision = self.confirm_apply({"job_id": str(arguments.get("job_id") or "the selected job"),
+                                           "answers": len(answers) if isinstance(answers, list) else 0})
+            if decision in {"decline", "cancel"}:
+                return _error_result(
+                    "apply_declined",
+                    "The user did not confirm the new conversion; nothing was sent to NetConverter. Do not "
+                    "retry unless the user asks for it in the conversation.")
         self._sync_view(exposure)
         if not exposure.strict:
             try:
@@ -1101,6 +1121,9 @@ class StdioServer:
                     "params": {"progressToken": token, "progress": count, "message": message}})
             if name == "submit_file" and self._elicit_form and self._in is not None and not self.bridge.guided:
                 self.bridge.confirm_upload = self._confirm_upload
+            if name == "apply_mapping_answers" and self._elicit_form and self._in is not None \
+                    and not self.bridge.guided:
+                self.bridge.confirm_apply = self._confirm_apply
             try:
                 result = self.bridge.call(name, arguments)
             except Exception:
@@ -1112,6 +1135,7 @@ class StdioServer:
             finally:
                 self.bridge.progress = None
                 self.bridge.confirm_upload = None
+                self.bridge.confirm_apply = None
         else:
             return _rpc_error(request_id, -32601, "Method not found" if self.bridge.guided else f"Method not found: {method[:80]}")
         return {"jsonrpc": "2.0", "id": request_id, "result": result}
@@ -1129,21 +1153,29 @@ class StdioServer:
         return _EOF
 
     def _confirm_upload(self, details: dict):
-        """Ask the client (elicitation/create, form mode) and wait for its answer (#20).
+        """Ask the client to confirm an upload (#20)."""
+        return self._elicit(_features.upload_request(details, self._protocol), _features.upload_decision)
+
+    def _confirm_apply(self, details: dict):
+        """Ask the client to confirm a guided-mapping apply before a re-conversion is queued (#12)."""
+        return self._elicit(_features.apply_request(details, self._protocol), _features.apply_decision)
+
+    def _elicit(self, params: dict, decide):
+        """Send elicitation/create (form mode) and wait for the client's answer.
 
         Anything else the client sends meanwhile is kept and handled afterwards.
         """
         self._elicit_seq += 1
         request_id = f"nc-elicit-{self._elicit_seq}"
         self._write(self._out, {"jsonrpc": "2.0", "id": request_id, "method": "elicitation/create",
-                                "params": _features.upload_request(details, self._protocol)})
+                                "params": params})
         while True:
             item = self._read()
             if item is _EOF:
                 self._backlog.append(_EOF)
-                return _features.upload_decision(None)
+                return decide(None)
             if isinstance(item, dict) and item.get("id") == request_id and "method" not in item:
-                return _features.upload_decision(item)
+                return decide(item)
             self._backlog.append(item)
 
     def serve(self, instream, outstream) -> None:

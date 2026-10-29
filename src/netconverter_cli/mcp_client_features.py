@@ -176,7 +176,27 @@ def upload_request(details: dict, protocol: str) -> dict:
     return params
 
 
-def upload_decision(reply) -> str | None:
+def apply_request(details: dict, protocol: str) -> dict:
+    """elicitation/create params before a guided-mapping apply queues a re-conversion (#12)."""
+    count = details.get("answers") or 0
+    message = (f"Apply {count} mapping answer{'' if count == 1 else 's'} to job {details['job_id']}? "
+               "NetConverter queues a new conversion with these decisions; your configuration is not "
+               "shown to the assistant.")
+    params = {"message": message, "requestedSchema": {
+        "type": "object",
+        "properties": {"apply": {"type": "boolean", "title": "Queue the new conversion",
+                                 "description": "Apply these decisions and convert again now", "default": False}},
+        "required": ["apply"]}}
+    if protocol >= "2025-11-25":
+        params["mode"] = "form"
+    return params
+
+
+def apply_decision(reply) -> str | None:
+    return upload_decision(reply, field="apply")
+
+
+def upload_decision(reply, field: str = "upload") -> str | None:
     """'accept' / 'decline' / 'cancel' from the client's answer; None when the client could not ask."""
     if reply is None:
         return "cancel"  # no answer before the stream ended
@@ -188,5 +208,5 @@ def upload_decision(reply) -> str | None:
     action = result.get("action")
     content = result.get("content") if isinstance(result.get("content"), dict) else {}
     if action == "accept":
-        return "accept" if content.get("upload") is True else "decline"
+        return "accept" if content.get(field) is True else "decline"
     return "decline" if action == "decline" else "cancel"
