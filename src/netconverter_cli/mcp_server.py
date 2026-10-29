@@ -13,6 +13,7 @@ no telemetry.
 
 from __future__ import annotations
 
+import collections
 import hashlib
 import json
 import re
@@ -29,6 +30,7 @@ from .controller import fetch_artifacts
 from .credentials import keyring_problem
 from . import errors, job_options, mcp_workflows
 from . import exposure as _exposure
+from . import mcp_client_features as _features
 from .drafts import DraftClient, DraftService
 from .privacy import STATUSES
 from .remote_mcp import RemoteError, RemoteMCP
@@ -294,6 +296,8 @@ LOCAL_TOOLS = [
         },
     },
 ]
+for _tool in LOCAL_TOOLS:  # #20: every local result's structuredContent has a schema
+    _tool["outputSchema"] = _features.OUTPUT_SCHEMAS[_tool["name"]]
 LOCAL_NAMES = frozenset(tool["name"] for tool in LOCAL_TOOLS)
 
 
@@ -398,6 +402,9 @@ class Bridge:
         self._profile: tuple[str, frozenset] | None = None
         self._remote_names: dict[str, str] = {}
         self.progress = None  # set by the stdio server while a call carries a progressToken
+        # Set by the stdio server while submit_file runs for a client with form elicitation (#20):
+        # called with the upload's path/size/hash, returns accept/decline/cancel, or None to proceed.
+        self.confirm_upload = None
         self._sleep, self._clock = time.sleep, time.monotonic
         self.client_name = ""  # the AI client's own name from initialize, for the activity log
 
@@ -509,6 +516,18 @@ class Bridge:
             )
         except WorkspaceError as exc:
             raise ToolFailure("invalid_path", str(exc)) from None
+        if self.confirm_upload is not None:  # #20: the client's own dialog, before anything is sent
+            decision = self.confirm_upload({
+                "path": str(self.workspace.locate(path).relative_to(self.workspace.root)),
+                "bytes": len(content), "sha256": digest, "job_type": job_type,
+                "source_vendor": source_vendor, "target_vendor": target_vendor})
+            if decision in {"decline", "cancel"}:
+                raise ToolFailure(
+                    "upload_declined",
+                    "The user declined the upload; nothing was sent to NetConverter. Do not retry unless "
+                    "the user asks for it in the conversation." if decision == "decline" else
+                    "The upload confirmation was dismissed or not answered; nothing was sent to "
+                    "NetConverter. Ask the user in the conversation before trying again.")
         key = uuid.uuid4().hex
         try:
             if kind == "quick":
@@ -982,10 +1001,19 @@ def _error_result(code: str, message: str, **extra) -> dict:
     return {"content": [{"type": "text", "text": json.dumps(payload, sort_keys=True)}], "isError": True}
 
 
+_EOF = object()
+_PARSE_ERROR = object()
+
+
 class StdioServer:
     def __init__(self, bridge: Bridge):
         self.bridge = bridge
         self._out = None  # the protocol stream while serve() runs, for progress notifications
+        self._in = None  # the input line iterator while serve() runs, for elicitation answers
+        self._backlog = collections.deque()  # messages read while waiting for an answer
+        self._protocol = PROTOCOL_VERSIONS[0]
+        self._elicit_form = False  # the client advertised form elicitation (#20)
+        self._elicit_seq = 0
 
     def handle(self, message):
         try:
@@ -997,6 +1025,8 @@ class StdioServer:
             return _rpc_error(request_id, -32603, "Internal error in the local bridge")
 
     def _dispatch(self, message):
+        if isinstance(message, dict) and "method" not in message and ("result" in message or "error" in message):
+            return None  # a late answer to a request of ours (elicitation): nothing to reply
         if not isinstance(message, dict) or message.get("jsonrpc") != "2.0" or not isinstance(message.get("method"), str):
             return _rpc_error(message.get("id") if isinstance(message, dict) else None, -32600, "Invalid request")
         method, request_id = message["method"], message.get("id")
@@ -1012,9 +1042,11 @@ class StdioServer:
                 self.bridge.client_name = re.sub(r"[^\w .-]", "", info["name"])[:40]
             requested = params.get("protocolVersion")
             version = requested if requested in PROTOCOL_VERSIONS else PROTOCOL_VERSIONS[0]
+            self._protocol = version
+            self._elicit_form = _features.form_elicitation(params.get("capabilities"))
             result = {
                 "protocolVersion": version,
-                "capabilities": {"tools": {"listChanged": False}},
+                "capabilities": {"tools": {"listChanged": False}, "prompts": {"listChanged": False}},
                 "serverInfo": {"name": SERVER_NAME, "version": __version__},
                 "instructions": INSTRUCTIONS,
             }
@@ -1046,6 +1078,15 @@ class StdioServer:
                 result = mcp_workflows.prompt(params["name"], params.get("arguments"))
             except ValueError:
                 return _rpc_error(request_id, -32602, "Unknown prompt or unsupported prompt arguments")
+        elif not self.bridge.guided and method == "prompts/list":
+            result = {"prompts": [dict(p) for p in _features.PROMPTS]}
+        elif not self.bridge.guided and method == "prompts/get":
+            if not set(params) <= {"name", "arguments", "_meta"} or not isinstance(params.get("name"), str):
+                return _rpc_error(request_id, -32602, "prompts/get requires a supported prompt name")
+            try:
+                result = _features.prompt(params["name"], params.get("arguments"), self.bridge.exposure.level)
+            except ValueError:
+                return _rpc_error(request_id, -32602, "Unknown prompt or unsupported prompt arguments")
         elif method == "tools/call":
             name, arguments = params.get("name"), params.get("arguments", {})
             if not isinstance(name, str) or not isinstance(arguments, dict):
@@ -1058,6 +1099,8 @@ class StdioServer:
                 self.bridge.progress = lambda count, message: self._write(self._out, {
                     "jsonrpc": "2.0", "method": "notifications/progress",
                     "params": {"progressToken": token, "progress": count, "message": message}})
+            if name == "submit_file" and self._elicit_form and self._in is not None and not self.bridge.guided:
+                self.bridge.confirm_upload = self._confirm_upload
             try:
                 result = self.bridge.call(name, arguments)
             except Exception:
@@ -1068,19 +1111,49 @@ class StdioServer:
                     result = _error_result("internal_error", "The local bridge failed; no configuration content was returned")
             finally:
                 self.bridge.progress = None
+                self.bridge.confirm_upload = None
         else:
             return _rpc_error(request_id, -32601, "Method not found" if self.bridge.guided else f"Method not found: {method[:80]}")
         return {"jsonrpc": "2.0", "id": request_id, "result": result}
 
-    def serve(self, instream, outstream) -> None:
-        self._out = outstream
-        for raw in instream:
+    def _read(self):
+        """The next message from the client, _PARSE_ERROR for a bad line, or _EOF."""
+        for raw in self._in:
             line = raw.strip()
             if not line:
                 continue
             try:
-                message = json.loads(line)
+                return json.loads(line)
             except ValueError:
+                return _PARSE_ERROR
+        return _EOF
+
+    def _confirm_upload(self, details: dict):
+        """Ask the client (elicitation/create, form mode) and wait for its answer (#20).
+
+        Anything else the client sends meanwhile is kept and handled afterwards.
+        """
+        self._elicit_seq += 1
+        request_id = f"nc-elicit-{self._elicit_seq}"
+        self._write(self._out, {"jsonrpc": "2.0", "id": request_id, "method": "elicitation/create",
+                                "params": _features.upload_request(details, self._protocol)})
+        while True:
+            item = self._read()
+            if item is _EOF:
+                self._backlog.append(_EOF)
+                return _features.upload_decision(None)
+            if isinstance(item, dict) and item.get("id") == request_id and "method" not in item:
+                return _features.upload_decision(item)
+            self._backlog.append(item)
+
+    def serve(self, instream, outstream) -> None:
+        self._out = outstream
+        self._in = iter(instream)
+        while True:
+            message = self._backlog.popleft() if self._backlog else self._read()
+            if message is _EOF:
+                break
+            if message is _PARSE_ERROR:
                 self._write(outstream, _rpc_error(None, -32700, "Parse error"))
                 continue
             if isinstance(message, list):
