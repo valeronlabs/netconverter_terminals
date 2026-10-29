@@ -20,6 +20,7 @@ import tomllib
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Callable
+from urllib.parse import urlparse
 
 SERVER_NAME = "netconverter"
 
@@ -247,6 +248,32 @@ def _exists(path_of: Callable[[], Path]) -> Callable[[], bool]:
     return lambda: path_of().parent.exists()
 
 
+def _direct_server_names(servers: dict) -> list[str]:
+    """Entries pointing an assistant straight at the NetConverter MCP server.
+
+    The server honours only known apps (the bridge's own client and enrolled
+    client-metadata URLs), so a desktop assistant's direct entry is refused with
+    oauth_client_not_enrolled. Connecting the bridge replaces it.
+    """
+    hosts = {urlparse(remote_url()).hostname, "api.netconverter.ai"}
+    names = []
+    for name, entry in (servers or {}).items():
+        if name == SERVER_NAME or not isinstance(entry, dict):
+            continue
+        url = entry.get("url") or entry.get("serverUrl")
+        if isinstance(url, str) and urlparse(url).hostname in hosts:
+            names.append(name)
+    return sorted(names)
+
+
+def _replacing(names: list[str]) -> str:
+    if not names:
+        return ""
+    return (f" Removes the direct server entr{'y' if len(names) == 1 else 'ies'} "
+            f"{', '.join(names)}: NetConverter refuses assistants that sign in directly, "
+            f"and the bridge replaces {'it' if len(names) == 1 else 'them'}.")
+
+
 def _plan_json_servers(key: str, title: str, path: Path, entry: dict, done: str) -> Change:
     """Merge mcpServers.netconverter into a client's JSON config, keeping every other key."""
     block = json.dumps({"mcpServers": {SERVER_NAME: entry}}, indent=2)
@@ -256,17 +283,23 @@ def _plan_json_servers(key: str, title: str, path: Path, entry: dict, done: str)
                       f"{title}'s config is not valid JSON (or mcpServers is not an object); edit it by hand.",
                       block, can_apply=False, manual=f"Add the block above to {path}.")
     after = json.loads(json.dumps(data))
+    direct = _direct_server_names(after.get("mcpServers"))
+    for name in direct:
+        after["mcpServers"].pop(name)
     after.setdefault("mcpServers", {})[SERVER_NAME] = entry
 
     def write() -> str:
         current = _read_json(path)  # re-read: never drop a change made since the preview
         if current is None or not isinstance(current.get("mcpServers", {}), dict):
             raise RuntimeError(f"{path} is no longer valid JSON; nothing was changed")
+        for name in _direct_server_names(current.get("mcpServers")):
+            current["mcpServers"].pop(name)
         current.setdefault("mcpServers", {})[SERVER_NAME] = entry
         _write_json(path, current)
         return f"Updated {path}. {done}"
     return Change(key, title, str(path),
-                  f"Sets mcpServers.{SERVER_NAME} in {path}, keeping everything else (backup: .bak).",
+                  f"Sets mcpServers.{SERVER_NAME} in {path}, keeping everything else (backup: .bak)."
+                  + _replacing(direct),
                   _diff(path, data if path.exists() else None, after), apply=write)
 
 
@@ -430,12 +463,17 @@ def plan(key: str, root: Path) -> Change:
             return Change(key, "Cursor", str(path), "Cursor's mcp.json is not valid JSON; edit it by hand.",
                           preview, can_apply=False, manual=f"Add the block above to {path}.")
 
+        direct = _direct_server_names(data.get("mcpServers"))
+
         def write() -> str:
             servers = data.setdefault("mcpServers", {})
+            for name in _direct_server_names(servers):
+                servers.pop(name)
             servers[SERVER_NAME] = entry
             _write_json(path, data)
             return f"Updated {path}. Cursor picks it up after a reload."
-        return Change(key, "Cursor", str(path), f"Sets mcpServers.{SERVER_NAME} in {path}.", preview, apply=write)
+        return Change(key, "Cursor", str(path), f"Sets mcpServers.{SERVER_NAME} in {path}." + _replacing(direct),
+                      preview, apply=write)
     if key == "vscode":
         path = root / ".vscode" / "mcp.json"
         data = _read_json(path)
