@@ -39,12 +39,29 @@ def _args(root: Path) -> list[str]:
     return ["mcp", "--workspace", str(root), "--strict"]
 
 
+def _program(command) -> str:
+    """The program name of a command on any platform: C:\\...\\netconverter.exe -> netconverter."""
+    name = re.split(r"[\\/]", str(command or ""))[-1].lower()
+    return re.sub(r"\.(exe|cmd|bat|ps1)$", "", name)
+
+
 def _is_ours(entry) -> bool:
     if not isinstance(entry, dict):
         return False
-    command = str(entry.get("command", ""))
     args = entry.get("args") or []
-    return Path(command).name == "netconverter" and bool(args) and args[0] == "mcp"
+    return _program(entry.get("command")) == "netconverter" and bool(args) and args[0] == "mcp"
+
+
+def _runs_bridge(entry) -> bool:
+    """The entry starts the NetConverter bridge, however it is launched."""
+    if _is_ours(entry):
+        return True
+    if not isinstance(entry, dict):
+        return False
+    args = [str(a).lower() for a in (entry.get("args") or [])]
+    launcher = _program(entry.get("command")) in {"uvx", "uv", "pipx", "python", "python3", "py"}
+    return launcher and "mcp" in args and any("netconverter-cli" in a or a == "netconverter" or
+                                              a == "netconverter_cli.cli" for a in args)
 
 
 def _read_json(path: Path):
@@ -249,11 +266,14 @@ def _exists(path_of: Callable[[], Path]) -> Callable[[], bool]:
 
 
 def _direct_server_names(servers: dict) -> list[str]:
-    """Entries pointing an assistant straight at the NetConverter MCP server.
+    """Older NetConverter entries that one `netconverter` bridge entry replaces.
 
-    The server honours only known apps (the bridge's own client and enrolled
-    client-metadata URLs), so a desktop assistant's direct entry is refused with
-    oauth_client_not_enrolled. Connecting the bridge replaces it.
+    Two kinds, judged by what an entry runs or points at, never by its name:
+    - a direct entry for the NetConverter MCP server, which honours only known
+      apps (the bridge's own client and enrolled client-metadata URLs), so a
+      desktop assistant's direct entry is refused with oauth_client_not_enrolled;
+    - another bridge entry under a different name (netconverter-local, a uvx
+      netconverter-cli launch, ...), which shows the assistant the same tools twice.
     """
     hosts = {urlparse(remote_url()).hostname, "api.netconverter.ai"}
     names = []
@@ -261,7 +281,7 @@ def _direct_server_names(servers: dict) -> list[str]:
         if name == SERVER_NAME or not isinstance(entry, dict):
             continue
         url = entry.get("url") or entry.get("serverUrl")
-        if isinstance(url, str) and urlparse(url).hostname in hosts:
+        if (isinstance(url, str) and urlparse(url).hostname in hosts) or _runs_bridge(entry):
             names.append(name)
     return sorted(names)
 
@@ -269,9 +289,9 @@ def _direct_server_names(servers: dict) -> list[str]:
 def _replacing(names: list[str]) -> str:
     if not names:
         return ""
-    return (f" Removes the direct server entr{'y' if len(names) == 1 else 'ies'} "
-            f"{', '.join(names)}: NetConverter refuses assistants that sign in directly, "
-            f"and the bridge replaces {'it' if len(names) == 1 else 'them'}.")
+    return (f" Removes {len(names)} older NetConverter entr{'y' if len(names) == 1 else 'ies'} "
+            f"({', '.join(names)}), so the assistant sees one NetConverter server: the bridge. "
+            "A direct server entry is refused by NetConverter, and a second bridge entry is a duplicate.")
 
 
 def _plan_json_servers(key: str, title: str, path: Path, entry: dict, done: str) -> Change:
@@ -423,24 +443,8 @@ def plan(key: str, root: Path) -> Change:
         if path is None:
             return Change(key, "Claude Desktop", "Claude Desktop", "Claude Desktop runs on macOS and Windows only.",
                           block, can_apply=False, manual="Add the block above to claude_desktop_config.json.")
-        data = _read_json(path)
-        if data is None or not isinstance(data.get("mcpServers", {}), dict):
-            return Change(key, "Claude Desktop", str(path),
-                          "Claude Desktop's config is not valid JSON (or mcpServers is not an object); edit it by hand.",
-                          block, can_apply=False, manual=f"Add the block above to {path}.")
-        after = json.loads(json.dumps(data))
-        after.setdefault("mcpServers", {})[SERVER_NAME] = entry
-
-        def write() -> str:
-            current = _read_json(path)
-            if current is None or not isinstance(current.get("mcpServers", {}), dict):
-                raise RuntimeError(f"{path} is no longer valid JSON; nothing was changed")
-            current.setdefault("mcpServers", {})[SERVER_NAME] = entry
-            _write_json(path, current)
-            return f"Updated {path}. Quit and reopen Claude Desktop to load the netconverter tools."
-        return Change(key, "Claude Desktop", str(path),
-                      f"Sets mcpServers.{SERVER_NAME} in {path}, keeping everything else (backup: .bak).",
-                      _diff(path, data if path.exists() else None, after), apply=write)
+        return _plan_json_servers(key, "Claude Desktop", path, entry,
+                                  "Quit and reopen Claude Desktop to load the netconverter tools.")
     if key == "gemini":
         return _plan_json_servers(key, "Gemini CLI", _gemini_path(), {"command": exe, "args": _args(root)},
                                   "Restart gemini, then run /mcp to see the netconverter tools.")

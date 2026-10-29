@@ -24,7 +24,7 @@ def test_cursor_direct_entry_is_replaced_by_the_bridge(tmp_path, monkeypatch):
     _config(path, {"netconverter-server": DIRECT, "github": OTHER})
     monkeypatch.setattr(connect, "_cursor_path", lambda: path)
     change = connect.plan("cursor", tmp_path)
-    assert "netconverter-server" in change.summary and "refuses" in change.summary
+    assert "netconverter-server" in change.summary and "refused" in change.summary
     change.apply()
     servers = json.loads(path.read_text())["mcpServers"]
     assert "netconverter-server" not in servers
@@ -51,3 +51,29 @@ def test_nothing_to_replace_keeps_the_old_summary(tmp_path, monkeypatch):
     assert "Removes" not in change.summary
     change.apply()
     assert set(json.loads(path.read_text())["mcpServers"]) == {"github", "netconverter"}
+
+
+def test_duplicate_bridge_entries_collapse_to_one(tmp_path, monkeypatch):
+    """Users saw eight NetConverter servers in Cursor: every older entry goes, unrelated ones stay."""
+    path = tmp_path / ".cursor" / "mcp.json"
+    _config(path, {
+        "netconverter-local": {"command": "/Users/x/.local/bin/netconverter", "args": ["mcp", "--workspace", "/m"]},
+        "netconverter-cli": {"command": "uvx", "args": ["netconverter-cli", "mcp"]},
+        "nc-windows": {"command": "C:\\Users\\x\\.local\\bin\\netconverter.exe", "args": ["mcp"]},
+        "netconverter-server": DIRECT,
+        # named like us, runs something else: never touched
+        "google-netconverter": {"command": "uvx", "args": ["workspace-mcp", "--tool-tier", "core"]},
+        "github": OTHER,
+    })
+    monkeypatch.setattr(connect, "_cursor_path", lambda: path)
+    change = connect.plan("cursor", tmp_path)
+    assert "Removes 4 older NetConverter entries" in change.summary
+    change.apply()
+    servers = json.loads(path.read_text())["mcpServers"]
+    assert set(servers) == {"netconverter", "google-netconverter", "github"}
+
+
+def test_windows_bridge_path_counts_as_configured():
+    entry = {"command": "C:\\Users\\x\\AppData\\Local\\netconverter.exe", "args": ["mcp"]}
+    assert connect._is_ours(entry)
+    assert not connect._is_ours({"command": "uvx", "args": ["workspace-mcp"]})
