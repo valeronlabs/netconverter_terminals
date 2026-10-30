@@ -7,7 +7,7 @@
 NetConverter — by ValeronLabs LLC.
 
 ```text
-◆ NetConverter  v0.5.0                      ● Server   ◆ Bridge claude-code · 2m ago
+◆ NetConverter  v0.6.0                      ● Server   ◆ Bridge claude-code · 2m ago
 ▍ Start
 ▍ /convert    Migrate a configuration to another vendor
 ▍ /validate   Check a configuration before migrating

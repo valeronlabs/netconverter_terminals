@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.6.0 — 2026-10-30
 
 - Guided drafts retain the server-advertised ASA target format (Palo Alto SET,
   standalone XML, or Panorama). Preparation refuses targets absent from the
