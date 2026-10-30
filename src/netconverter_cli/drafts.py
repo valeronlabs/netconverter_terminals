@@ -27,6 +27,7 @@ JOB_ACTIONS = ("get_job_status", "download_artifact")
 from .projects import OPERATIONS as PROJECT_ACTIONS, CONTRACT as PROJECT_CONTRACT
 _ALL_ACTIONS = ACTIONS + RESOURCE_ACTIONS + JOB_ACTIONS + PROJECT_ACTIONS
 JOB_STATUSES = ("queued", "running", "complete", "failed", "stale")
+MIGRATION_TARGETS = ("palo_alto_set", "palo_alto_xml", "palo_alto_panorama")
 _ID = re.compile(r"[A-Za-z0-9_-]{1,80}\Z")
 _HASH = re.compile(r"[a-f0-9]{64}\Z")
 _KEY = re.compile(r"[A-Za-z0-9_-]{8,128}\Z")
@@ -90,9 +91,9 @@ DATA_PROPERTIES = {
     "manifest_revision": REV_SCHEMA, "progress": {"type": "integer", "minimum": 0, "maximum": 100},
     "waited_s": {"type": "number", "minimum": 0}, "timed_out": {"type": "boolean"},
     "draft_kind": {"const": "migration"},
-    "source_vendor": {"const": "cisco_asa"}, "target_vendor": {"const": "palo_alto_set"},
-    "migration_pairs": {"type": "array", "maxItems": 1, "items": _object({
-        "source_vendor": {"const": "cisco_asa"}, "target_vendor": {"const": "palo_alto_set"},
+    "source_vendor": {"const": "cisco_asa"}, "target_vendor": {"enum": list(MIGRATION_TARGETS)},
+    "migration_pairs": {"type": "array", "maxItems": len(MIGRATION_TARGETS), "uniqueItems": True, "items": _object({
+        "source_vendor": {"const": "cisco_asa"}, "target_vendor": {"enum": list(MIGRATION_TARGETS)},
     }, ("source_vendor", "target_vendor"))},
     **{name: ID_SCHEMA for name in ("draft_id", "job_id", "validation_id", "review_id", "approval_ref", "view_id", "catalog_version", "entry_id")},
     **{name: HASH_SCHEMA for name in ("content_sha256", "source_sha256", "document_sha256", "validation_sha256", "sha256")},
@@ -355,11 +356,14 @@ class DraftService:
                 any(not isinstance(item, str) for item in guided["operations"]) or
                 not isinstance(guided.get("migration_pairs"), list) or
                 not any(isinstance(pair, dict) and pair.get("source_vendor") == "cisco_asa" and
-                        pair.get("target_vendor") == "palo_alto_set" for pair in guided["migration_pairs"])):
+                        pair.get("target_vendor") in MIGRATION_TARGETS for pair in guided["migration_pairs"])):
             raise DraftError("unsupported_capability")
         return {"enabled": True, "contract_version": "1", "approval_mode": "human_bound", "agent_restricted": True,
                 "view_mode": "strict", "view_enforced_by": "server",
-                "migration_pairs": [{"source_vendor": "cisco_asa", "target_vendor": "palo_alto_set"}],
+                "migration_pairs": [{"source_vendor": "cisco_asa", "target_vendor": target}
+                    for target in MIGRATION_TARGETS if any(isinstance(pair, dict) and
+                        pair.get("source_vendor") == "cisco_asa" and pair.get("target_vendor") == target
+                        for pair in guided["migration_pairs"])],
                 "operations": [action for action in _ALL_ACTIONS if action in guided["operations"]]}
 
     def capabilities(self):
@@ -391,6 +395,9 @@ class DraftService:
                 raise DraftError("invalid_arguments")
             capabilities = self._capabilities()
             if action not in capabilities["operations"]:
+                raise DraftError("unsupported_capability")
+            if action == "prepare_draft" and {"source_vendor": arguments.get("source_vendor", "cisco_asa"),
+                    "target_vendor": arguments.get("target_vendor", "palo_alto_set")} not in capabilities["migration_pairs"]:
                 raise DraftError("unsupported_capability")
             return _success(self._run(action, arguments))
         except APIError as exc:
@@ -437,7 +444,7 @@ class DraftService:
     @staticmethod
     def _migration(data):
         if (data.get("draft_kind") != "migration" or data.get("source_vendor") != "cisco_asa" or
-                data.get("target_vendor") != "palo_alto_set"):
+                data.get("target_vendor") not in MIGRATION_TARGETS):
             raise DraftError("unsupported_capability")
 
     def _current_draft(self, draft_id, revision):
@@ -480,7 +487,7 @@ class DraftService:
             self._arguments(args, ("path", "idempotency_key"), ("source_vendor", "target_vendor", "workflow"))
             key = self._idempotency(args)
             source, target, workflow = args.get("source_vendor", "cisco_asa"), args.get("target_vendor", "palo_alto_set"), args.get("workflow", "studio")
-            if source != "cisco_asa" or target != "palo_alto_set" or workflow not in {"studio", "quick"}:
+            if source != "cisco_asa" or target not in MIGRATION_TARGETS or workflow not in {"studio", "quick"}:
                 raise DraftError("unsupported_capability")
             _, content, sha = secure_snapshot(self.workspace, args["path"])
             data = self.client.request("POST", "drafts", idempotency_key=key,
@@ -490,7 +497,8 @@ class DraftService:
             _identifier(projected.get("draft_id"))
             _revision(projected.get("revision"))
             self._migration(projected)
-            if projected.get("source_sha256") != sha:
+            if (projected.get("source_sha256") != sha or projected.get("source_vendor") != source
+                    or projected.get("target_vendor") != target):
                 raise DraftError("invalid_response")
             return projected
         if action in RESOURCE_ACTIONS:

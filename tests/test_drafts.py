@@ -88,6 +88,33 @@ def test_source_direct_transport_never_projected(tmp_path):
     assert result["data"]["required_decisions"] == [{"decision_id": "dec_" + "1" * 32, "required": True, "choices": [{"choice_id": "cho_" + "1" * 32}]}]
 
 
+@pytest.mark.parametrize("target", ["palo_alto_set", "palo_alto_xml", "palo_alto_panorama"])
+def test_prepare_preserves_advertised_target_and_refuses_substitution(tmp_path, target):
+    (tmp_path / "source.cfg").write_text("source")
+    pair = {"source_vendor": "cisco_asa", "target_vendor": target}
+    def handle(request):
+        assert json.loads(request.content)["target_vendor"] == target
+        return success(draft(target_vendor=target, source_sha256=SHA))
+    svc, _ = service(tmp_path, handle, capabilities(migration_pairs=[pair]))
+    assert svc.capabilities()["data"]["migration_pairs"] == [pair]
+    result = svc.call("prepare_draft", {"path": "source.cfg", "target_vendor": target, "idempotency_key": KEY})
+    assert result["ok"] and result["data"]["target_vendor"] == target
+    other = "palo_alto_xml" if target == "palo_alto_set" else "palo_alto_set"
+    svc, _ = service(tmp_path, lambda req: success(draft(target_vendor=other, source_sha256=SHA)),
+                     capabilities(migration_pairs=[pair]))
+    result = svc.call("prepare_draft", {"path": "source.cfg", "target_vendor": target, "idempotency_key": KEY})
+    assert result["error"]["code"] == "invalid_response"
+
+
+@pytest.mark.parametrize("target", ["palo_alto_xml", "palo_alto_panorama"])
+def test_unadvertised_target_refused_before_source_read(tmp_path, monkeypatch, target):
+    monkeypatch.setattr("netconverter_cli.drafts.secure_snapshot", lambda *a: pytest.fail("No source read"))
+    svc, seen = service(tmp_path, lambda req: pytest.fail("No upload"))
+    result = svc.call("prepare_draft", {"path": "secret.cfg", "target_vendor": target, "idempotency_key": KEY})
+    assert result["error"]["code"] == "unsupported_capability"
+    assert len(seen) == 1
+
+
 @pytest.mark.parametrize("changes", [{"revision": True}, {"revision": 0}, {"revision": "1"}, {"draft_id": "../draft_1"}, {"idempotency_key": ""}])
 def test_invalid_explicit_handles_never_mutate(tmp_path, changes):
     svc, seen = service(tmp_path, lambda req: pytest.fail("No mutation"))
@@ -126,7 +153,7 @@ def test_unknown_error_code_and_detail_never_echo(tmp_path):
 
 def test_yaml_upload_direct_and_strict_change_contract(tmp_path):
     content = f"decisions:\n  name: {CANARY}\n"
-    (tmp_path / "decisions.yaml").write_text(content)
+    (tmp_path / "decisions.yaml").write_bytes(content.encode())
     def handle(request):
         body = json.loads(request.content)
         assert body == {"expected_revision": 1, "document": content, "document_sha256": hashlib.sha256(content.encode()).hexdigest()}

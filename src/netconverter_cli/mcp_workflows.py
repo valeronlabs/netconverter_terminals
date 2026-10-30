@@ -12,7 +12,7 @@ import json
 import re
 
 from .design_catalog import TYPED_CHANGE_SCHEMA
-from .drafts import ARTIFACT_ID_SCHEMA, CHOICE_SCHEMA, DECISION_SCHEMA, ID_SCHEMA, OUTPUT_SCHEMA, REV_SCHEMA
+from .drafts import ARTIFACT_ID_SCHEMA, CHOICE_SCHEMA, DECISION_SCHEMA, ID_SCHEMA, MIGRATION_TARGETS, OUTPUT_SCHEMA, REV_SCHEMA
 
 
 INSTRUCTIONS = (
@@ -52,7 +52,7 @@ TASK_TOOLS = (
     _tool("get_design_catalog", "Read supported design operations, required inputs and qualification gaps.", {}),
     _tool("prepare_draft", "Prepare a revisioned migration draft from a local configuration file.", {
         "path": _PATH, "source_vendor": {"type": "string", "enum": ["cisco_asa"]},
-        "target_vendor": {"type": "string", "enum": ["palo_alto_set"]},
+        "target_vendor": {"type": "string", "enum": list(MIGRATION_TARGETS)},
         "workflow": {"type": "string", "enum": ["quick", "studio"]},
         "idempotency_key": _KEY,
     }, ("path", "source_vendor", "target_vendor", "workflow", "idempotency_key")),

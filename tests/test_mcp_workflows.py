@@ -288,7 +288,7 @@ def test_actual_disabled_capability_response_does_not_leak_or_fall_back(tmp_path
 def test_real_service_prepare_projects_private_fields_and_matches_advertised_schemas(tmp_path):
     """Cross the bridge, service and HTTP serialization boundary, without a fake service."""
     source = f"! {CANARY}\nhostname synthetic\n"
-    (tmp_path / "source.cfg").write_text(source)
+    (tmp_path / "source.cfg").write_bytes(source.encode())
     requests = []
     enabled = True
     decision = "dec_" + "1" * 32

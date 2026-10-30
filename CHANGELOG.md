@@ -1,5 +1,13 @@
 # Changelog
 
+## Unreleased
+
+- Guided drafts retain the server-advertised ASA target format (Palo Alto SET,
+  standalone XML, or Panorama). Preparation refuses targets absent from the
+  credential's current capabilities before reading a source file, and rejects a
+  response that substitutes another target. Server rollout qualification still
+  controls availability.
+
 ## 0.5.0 — 2026-10-29
 
 **Upgrade note.** Each folder now has an exposure level for AI assistants, default
