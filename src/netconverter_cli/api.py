@@ -280,12 +280,20 @@ class ExternalClient(Client):
             raise self._error(response, request_id)
         return response.content
 
-    def diagram(self, job_id: str, recipe: dict) -> bytes:
+    def diagram(self, job_id: str, recipe: dict, *, max_bytes=32 * 1024 * 1024) -> bytes:
         """Fixed authenticated endpoint; the expected hash binds revision and view."""
-        response, request_id = self._send(
-            "POST", f"jobs/{self.identifier(job_id)}/diagrams/render", json=recipe)
-        if response.status_code != 200:
-            raise self._error(response, request_id)
-        if len(response.content) > 32 * 1024 * 1024:
-            raise APIError(413, "diagram_too_large", request_id)
-        return response.content
+        path = f"jobs/{self.identifier(job_id)}/diagrams/render"
+        request_id = "req_" + uuid.uuid4().hex
+        try:
+            with self.http.stream("POST", path, json=recipe,
+                                  headers={"X-Request-ID": request_id}) as response:
+                content = bytearray()
+                for chunk in response.iter_bytes(chunk_size=64 * 1024):
+                    if len(content) + len(chunk) > max_bytes:
+                        raise APIError(413, "diagram_too_large", request_id)
+                    content.extend(chunk)
+                if response.status_code != 200:
+                    raise self._error(httpx.Response(response.status_code, content=bytes(content)), request_id)
+                return bytes(content)
+        except httpx.HTTPError:
+            raise APIError(0, "connection_failed", request_id) from None

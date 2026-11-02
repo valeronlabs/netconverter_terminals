@@ -1,11 +1,14 @@
 # Changelog
 
-## Unreleased — branded diagrams
+## 0.7.1 — 2026-11-02
 
 - Proxy governed `get_diagram` discovery for selected jobs in full and strict views.
 - `download` accepts an artifact request recipe for SVG, PNG, PDF, draw.io or JSON.
   It uses a fixed authenticated endpoint, checks the expected SHA-256 before an
   atomic write, preserves earlier document revisions, and respects strict view.
+- Explicit `preview_diagram` returns a verified PNG as native MCP image content for
+  IDE chat. Streaming, byte and canvas bounds apply; masked/selected force strict
+  view and none refuses previews. Automatic summaries and downloads remain metadata only.
 - Availability requires the matching server release; live two-client and public
   package qualification remain separate from synthetic bridge tests.
 

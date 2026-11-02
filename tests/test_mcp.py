@@ -21,11 +21,11 @@ def test_local_tool_annotations_describe_mutation_and_network():
     from netconverter_cli.mcp_server import LOCAL_TOOLS
 
     tools = {tool["name"]: tool["annotations"] for tool in LOCAL_TOOLS}
-    assert set(tools) == {"submit_file", "job_status", "wait_for_job", "account", "download"}
+    assert set(tools) == {"submit_file", "job_status", "wait_for_job", "account", "download", "preview_diagram"}
     for name in ("submit_file", "download"):
         assert tools[name]["readOnlyHint"] is False
         assert tools[name]["idempotentHint"] is False
-    for name in ("job_status", "wait_for_job", "account"):
+    for name in ("job_status", "wait_for_job", "account", "preview_diagram"):
         assert tools[name]["readOnlyHint"] is True
         assert tools[name]["idempotentHint"] is True
     assert all(value["openWorldHint"] is True for value in tools.values())
@@ -321,7 +321,7 @@ class RemoteServer:
                                          "error": {"code": -32601, "message": "nope"}})
 
 
-LOCAL = ["submit_file", "job_status", "wait_for_job", "account", "download"]
+LOCAL = ["submit_file", "job_status", "wait_for_job", "account", "download", "preview_diagram"]
 
 
 def remote_bridge(workspace, tools, strict=False):

@@ -44,6 +44,16 @@ _GUIDED = {
 }
 
 OUTPUT_SCHEMAS = {
+    "preview_diagram": {
+        "type": "object",
+        "properties": {"job_id": _JOB_ID, "sha256": _SHA256, "bytes": _COUNT,
+                       "mimeType": {"const": "image/png"},
+                       "view": {"enum": ["default", "strict"]},
+                       "width": {"type": "integer", "minimum": 1},
+                       "height": {"type": "integer", "minimum": 1}},
+        "required": ["job_id", "sha256", "bytes", "mimeType", "view", "width", "height"],
+        "additionalProperties": False,
+    },
     "submit_file": {
         "type": "object",
         "properties": {"job_id": _JOB_ID, "status": _STATUS, "sha256": _SHA256,

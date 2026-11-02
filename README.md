@@ -7,7 +7,7 @@
 NetConverter — by ValeronLabs LLC.
 
 ```text
-◆ NetConverter  v0.7.0                      ● Server   ◆ Bridge claude-code · 2m ago
+◆ NetConverter  v0.7.1                      ● Server   ◆ Bridge claude-code · 2m ago
 ▍ Start
 ▍ /convert    Migrate a configuration to another vendor
 ▍ /validate   Check a configuration before migrating
@@ -134,6 +134,42 @@ hold the assistant at masked.
 
 Inside the app, `/activity` and the header's **Bridge** pill show what your AI did
 through the bridge — paths, sizes, SHA-256 and job IDs only.
+
+### Show a diagram in IDE chat
+
+With the matching diagram-enabled server and bridge, use this prompt in your IDE:
+
+> For my selected completed NetConverter job, show its topology diagram here in chat.
+> Call get_diagram, then pass the returned PNG artifact request unchanged to
+> preview_diagram with that job_id. Use the current privacy view. Do not open a local
+> file or fetch an image URL. If preview is refused, report the reason.
+
+`preview_diagram` returns an MCP `image` content block (`mimeType: image/png`, base64
+`data`) plus a text/structured receipt with SHA-256, byte count, dimensions and view.
+An IDE that renders MCP image content can display it inline; rendering in individual
+IDE clients still needs live qualification. The bridge fetches from the fixed,
+authenticated NetConverter endpoint, verifies the recipe's SHA-256, and saves no image
+file. It accepts PNG only, at most **2 MiB**, **4096 pixels per side** and **8 million
+pixels**. Use `download` for larger diagrams or SVG/PDF/draw.io/JSON files.
+
+Masked and selected levels force the server's strict projection; `none` refuses image
+previews. A stale hash or a hash from another privacy view is refused: request a fresh
+PNG recipe from `get_diagram`. Quick API credentials and development guided mode do
+not provide this preview tool's workflow. Automatic job summaries and ordinary
+downloads continue returning metadata only.
+
+For a synthetic protocol check from the source checkout:
+
+```sh
+uv run pytest tests/test_diagrams.py -q
+```
+
+The preview test exchanges initialize/list/call messages over serialized stdio for
+all supported protocol versions, decodes the returned PNG, and checks hash, privacy,
+size and invalid-input refusals. For an IDE acceptance check, run the prompt above on
+a synthetic completed job and confirm an inline image, a matching receipt hash, and
+no local image-file read or arbitrary-URL request. Synthetic tests alone do not prove
+live server support or a client's inline rendering.
 
 ## Stay current
 

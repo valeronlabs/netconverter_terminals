@@ -38,7 +38,7 @@ def structured(bridge, name, **arguments):
 # -- outputSchema ----------------------------------------------------------------
 
 def test_every_local_tool_declares_an_output_schema():
-    assert set(SCHEMAS) == {"submit_file", "job_status", "wait_for_job", "account", "download"}
+    assert set(SCHEMAS) == {"submit_file", "job_status", "wait_for_job", "account", "download", "preview_diagram"}
     for name, schema in SCHEMAS.items():
         assert schema and schema["type"] == "object", name
 
