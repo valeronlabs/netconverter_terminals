@@ -35,9 +35,13 @@ The terminal neither bundles nor downloads model weights.
 
 The bridge offers its local tools (`submit_file`, `job_status`, `wait_for_job`,
 `account`, `download`) and proxies NetConverter's remote tools only from a fixed
-client-side allowlist of read tools. A tool the server adds later is not offered
-until a client release lists it, and a remote tool named `submit_*` is never
-proxied.
+client-side allowlist. A tool the server adds later is not offered until a client
+release lists it. The only remote `submit_*` tool proxied is `submit_conversion`, which
+takes a prescan id and a revision, never configuration text. The write tools
+(`propose_operations`, `submit_conversion`, `apply_mapping_answers`) are listed by the
+server only in its default view (level `full`) and only for tenants where they are
+enabled; the bridge asks you before `submit_conversion` or `apply_mapping_answers` queue
+a conversion ([GUIDE.md](GUIDE.md#confirmations-before-an-upload-or-a-conversion)).
 
 ### Exposure levels
 

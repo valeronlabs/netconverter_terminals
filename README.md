@@ -154,7 +154,9 @@ a day; set `NETCONVERTER_NO_UPDATE_CHECK=1` to turn that off.
 
 ## Documentation
 
-- [Quick start](QUICK_START.md) · [Commands and troubleshooting](docs/COMMANDS.md)
+- [Quick start](QUICK_START.md) · [Guide: what everything means](docs/GUIDE.md) (sign-in, privacy levels, assistants, guided migration, error codes)
+- [CLI reference](docs/CLI_REFERENCE.md) (every command and flag, with examples) · [Settings and troubleshooting](docs/COMMANDS.md)
+- [Connect an AI assistant](docs/connect/README.md) (Claude, ChatGPT, Cursor, Codex, Gemini, …)
 - [Privacy and data flow](docs/PRIVACY.md) · [Verification status](docs/VERIFICATION.md)
 - [Changelog](CHANGELOG.md) · [Contributing](CONTRIBUTING.md) · [Security](SECURITY.md)
 
