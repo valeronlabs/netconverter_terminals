@@ -371,7 +371,12 @@ REMOTE_STEPS = {
         "  Authentication:  OAuth. Under advanced OAuth settings enter the NetConverter OAuth\n"
         "                   client ID your administrator gives you, then sign in with your\n"
         "                   NetConverter account when asked.\n"
-        "Then enable NetConverter in a chat from the + menu (Developer mode)."),
+        "Then enable NetConverter in a chat from the + menu (Developer mode).\n"
+        "To upload configuration files from ChatGPT: the ChatGPT desktop app's agent (Codex) runs\n"
+        "this bridge from ~/.codex/config.toml. In your migrations folder run\n"
+        "`netconverter connect codex` and, for the guided-migration tools,\n"
+        "`netconverter privacy level full`; then restart ChatGPT. ChatGPT cannot show the\n"
+        "upload form, so it asks you in the chat before each upload (docs/connect/chatgpt.md)."),
     "claude-ai": (
         "claude.ai (web and mobile)",
         "On claude.ai: Settings → Connectors → Add custom connector.\n"

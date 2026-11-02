@@ -272,7 +272,8 @@ configuration text). Default: `compare_against_intent`, `fetch`, `get_account`,
 `kb_search`, `list_jobs`, `list_objects_with_attribute`, `list_rules_matching`,
 `query_ir`, `search`, `select_job`, `simulate_flow`, `vendor_capability_lookup`,
 `get_mapping_questions`, `validate_mapping`, `apply_mapping_answers`, `list_operations`,
-`get_decision_document`, `validate_decision_document`, `propose_operations`, `submit_conversion`.
+`get_decision_document`, `validate_decision_document`, `propose_operations`, `submit_conversion`,
+`set_view_level` (lowers the server's view for the session; it can never raise it).
 At levels `none`, `masked` and `selected` (the default is masked; `full` uses the default list):
 `list_jobs`, `select_job`, `get_account`, `search`, `fetch`,
 `kb_search`, `kb_explain`, `vendor_capability_lookup`, `get_job_brief`,

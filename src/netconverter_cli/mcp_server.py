@@ -102,6 +102,9 @@ REMOTE_TOOLS_DEFAULT = frozenset({
     "get_mapping_questions", "validate_mapping", "apply_mapping_answers",
     "list_operations", "get_decision_document", "validate_decision_document",
     "propose_operations", "submit_conversion",
+    # Lowers the server's view for this MCP session (never raises it); the bridge still
+    # sends its own level on every request and filters every result to it.
+    "set_view_level",
 })
 # Guided mapping (aws#774, #12): decision-only questions whose configuration names are
 # server tokens; the server resolves them, so they are listed in the strict view too.

@@ -22,7 +22,7 @@ from netconverter_cli.remote_mcp import RemoteMCP
 from tests.test_mcp import CONFIG, MARKER, SERVER, ExternalServer, QuickServer, RemoteServer, envelope
 
 PRESCAN = {"path": "configs/asa.cfg", "source_vendor": "cisco_asa", "job_type": "prescan"}
-ADVERTISED = ("get_account", "list_jobs", *GUIDED_TOOLS, "submit_job")
+ADVERTISED = ("get_account", "list_jobs", *GUIDED_TOOLS, "set_view_level", "submit_job")
 
 
 @pytest.fixture
@@ -137,6 +137,7 @@ def test_default_view_lists_the_guided_tools_and_only_submit_conversion(workspac
     bridge, _, _ = bridge_for(workspace)
     tools = {t["name"]: t for t in bridge.list_tools()}
     assert set(GUIDED_TOOLS) <= set(tools) and "submit_job" not in tools
+    assert "set_view_level" in tools and "set_view_level" not in REMOTE_TOOLS_STRICT
     assert "confirm_token" in tools["submit_conversion"]["inputSchema"]["properties"]
     assert "confirm_token" not in tools["propose_operations"]["inputSchema"].get("properties", {})
     assert not set(GUIDED_TOOLS) & REMOTE_TOOLS_STRICT  # the strict view lists none of them

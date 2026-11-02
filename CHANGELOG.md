@@ -9,7 +9,8 @@
   `propose_operations` and `submit_conversion` (the one remote `submit_*` it allows: a prescan
   id and a revision, no configuration text). They need exposure level `full`; the two write
   tools appear only where the server enables them for the tenant, and the server gates and
-  audits each call. `submit_conversion` asks for confirmation like an upload.
+  audits each call. `submit_conversion` asks for confirmation like an upload. Also proxied at
+  `full`: `set_view_level` (it can only lower the server's view for the session).
 - New: `account` reports `guided_migration` (the guided tools this session lists, or the fix
   when the level hides them), and the remote `get_account` carries the same note below `full`.
 - Fix (#37): assistants that advertise forms but decline without showing them (ChatGPT, Claude
