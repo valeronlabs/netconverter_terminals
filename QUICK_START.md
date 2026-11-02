@@ -126,3 +126,20 @@ size, SHA-256 and job ID — never content.
   removes the saved sign-in and key.
 
 Something failed? See [troubleshooting](docs/COMMANDS.md#troubleshooting).
+
+
+## Branded diagrams (matching server capability required)
+
+After selecting a completed job, call `get_diagram` with `kind` set to
+`topology`, `comparison`, `traffic`, `nat` or `policy`. The response describes
+coverage and provides small artifact descriptors. Choose a descriptor and pass
+its `request` object as `diagram` to the local `download` tool, along with the
+job ID and optional workspace destination. Do not pass its URL.
+
+The bridge verifies the server-provided SHA-256 and writes only into the
+workspace. It returns file names and hashes, never image bytes. If source,
+renderer or privacy view changed, request a new descriptor. Strict view cannot
+be widened by a download recipe. Missing target/flow evidence stays explicit.
+Editable draw.io files are documentation; editing them changes no configuration
+or validation result. Guided draft and restricted Quick credentials retain their
+existing artifact flows; this request uses completed jobs on the full API.

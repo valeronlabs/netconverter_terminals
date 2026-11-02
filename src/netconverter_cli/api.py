@@ -225,7 +225,7 @@ class ExternalClient(Client):
     """
 
     _ALLOWED = re.compile(
-        r"(?:me|capabilities|jobs|jobs/[A-Za-z0-9_-]{1,80}(?:/translated|/report|/evidence\.xlsx|/findings\.sarif)?)\Z"
+        r"(?:me|capabilities|jobs|jobs/[A-Za-z0-9_-]{1,80}(?:/translated|/report|/evidence\.xlsx|/findings\.sarif|/diagrams/render)?)\Z"
     )
 
     def me(self):
@@ -278,4 +278,14 @@ class ExternalClient(Client):
             return None
         if response.is_error:
             raise self._error(response, request_id)
+        return response.content
+
+    def diagram(self, job_id: str, recipe: dict) -> bytes:
+        """Fixed authenticated endpoint; the expected hash binds revision and view."""
+        response, request_id = self._send(
+            "POST", f"jobs/{self.identifier(job_id)}/diagrams/render", json=recipe)
+        if response.status_code != 200:
+            raise self._error(response, request_id)
+        if len(response.content) > 32 * 1024 * 1024:
+            raise APIError(413, "diagram_too_large", request_id)
         return response.content

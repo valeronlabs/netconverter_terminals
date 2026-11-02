@@ -31,6 +31,7 @@ from .credentials import keyring_problem
 from . import errors, job_options, mcp_workflows
 from . import exposure as _exposure
 from . import mcp_client_features as _features
+from .diagrams import DiagramArtifact, download_diagram
 from .drafts import DraftClient, DraftService
 from .privacy import STATUSES
 from .remote_mcp import RemoteError, RemoteMCP
@@ -93,7 +94,7 @@ _JOB_ID = re.compile(r"[A-Za-z0-9_-]{1,80}\Z")
 REMOTE_TOOLS_DEFAULT = frozenset({
     "compare_against_intent", "fetch", "get_account", "get_acl_summary",
     "get_critical_object_impact", "get_dependency_chains", "get_evidence",
-    "get_interface_summary", "get_job_brief", "get_management_config", "get_nat_summary",
+    "get_diagram", "get_interface_summary", "get_job_brief", "get_management_config", "get_nat_summary",
     "get_object_dependencies", "get_object_summary", "get_report", "get_route_summary",
     "get_target_config", "get_translation_edge_summary", "get_unused_objects",
     "get_vpn_summary", "get_zone_summary", "kb_explain", "kb_search", "list_jobs",
@@ -113,7 +114,7 @@ MAPPING_TOOLS = frozenset({"get_mapping_questions", "validate_mapping", "apply_m
 # `netconverter mcp --strict` proxies only these, whatever the server advertises.
 REMOTE_TOOLS_STRICT = frozenset({
     "list_jobs", "select_job", "get_account", "search", "fetch", "kb_search", "kb_explain",
-    "vendor_capability_lookup", "get_job_brief", "get_evidence", "get_report",
+    "vendor_capability_lookup", "get_job_brief", "get_evidence", "get_report", "get_diagram",
 }) | MAPPING_TOOLS
 assert REMOTE_TOOLS_STRICT <= REMOTE_TOOLS_DEFAULT
 # Guided migration over a prescan (aws#1090): read the decisions, record the user's
@@ -326,13 +327,15 @@ LOCAL_TOOLS = [
         "annotations": {"readOnlyHint": False, "destructiveHint": False, "idempotentHint": False, "openWorldHint": True},
         "description": (
             "Download a job's artifacts into a folder inside the workspace (hash-verified, "
-            "never overwriting different files). Returns file names, sizes and SHA-256 "
+            "never overwriting different files). For a diagram, pass the artifact request returned "
+            "by get_diagram as diagram. Returns file names, sizes and SHA-256 "
             "only; open the files locally if the user asks." + _DATA_NOTE
         ),
         "inputSchema": {
             "type": "object",
             "properties": {
                 "job_id": {"type": "string"},
+                "diagram": DiagramArtifact.model_json_schema(),
                 "dest_dir": {"type": "string", "description": "Destination folder inside the workspace; '.' for the workspace root.", "default": "."},
             },
             "required": ["job_id"],
@@ -813,8 +816,10 @@ class Bridge:
         return out
 
     def download(self, job_id=None, dest_dir=".", *, draft_id=None, revision=None,
-                 artifact_id=None, manifest_revision=None):
+                 artifact_id=None, manifest_revision=None, diagram=None):
         if self.guided:
+            if diagram is not None:
+                return mcp_workflows.error("unsupported_capability", "Use a selected completed job for diagram downloads")
             if dest_dir != ".":
                 return mcp_workflows.error("invalid_arguments", "Guided downloads use the configured workspace")
             args = {"draft_id": draft_id, "revision": revision}
@@ -832,7 +837,17 @@ class Bridge:
             raise ToolFailure("invalid_path", str(exc)) from None
         kind, _ = self.profile()
         try:
-            if kind == "quick":
+            if diagram is not None:
+                if kind != "external":
+                    raise ToolFailure("unsupported_capability", "Diagram requests require the full External API; Quick bundles retain their existing artifacts")
+                client = self._client(ExternalClient)
+                try:
+                    paths = [download_diagram(client, output, job_id, diagram, strict=self.exposure.strict)]
+                except ValueError:
+                    raise ToolFailure("invalid_arguments", "Invalid diagram recipe or unavailable privacy view") from None
+                finally:
+                    client.close()
+            elif kind == "quick":
                 client = self._client(Client)
                 try:
                     paths = fetch_artifacts(client, job_id, output)
