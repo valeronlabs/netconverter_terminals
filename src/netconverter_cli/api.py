@@ -225,7 +225,7 @@ class ExternalClient(Client):
     """
 
     _ALLOWED = re.compile(
-        r"(?:me|capabilities|jobs|jobs/[A-Za-z0-9_-]{1,80}(?:/translated|/report|/evidence\.xlsx|/findings\.sarif|/diagrams/render)?)\Z"
+        r"(?:me|capabilities|jobs|jobs/[A-Za-z0-9_-]{1,80}(?:/translated|/report|/evidence\.xlsx|/findings\.sarif|/diagrams/render|/validation/(?:ncir|receipt|txt|pdf|xlsx))?)\Z"
     )
 
     def me(self):
@@ -249,6 +249,27 @@ class ExternalClient(Client):
         if response.is_error:
             raise self._error(response, request_id)
         return response.content
+
+    def validation_artifact(self, job_id: str, format: str) -> tuple[bytes, str] | None:
+        """Recorded source artifacts; the server hash is verified before any write.
+
+        A 404 means an old server/job has no artifact. Integrity failures (409)
+        and authorization refusals propagate, rather than silently disappearing.
+        """
+        import hashlib
+        if format not in {"ncir", "receipt", "txt", "pdf", "xlsx"}:
+            raise ValueError("Unsupported validation artifact format")
+        response, request_id = self._send(
+            "GET", f"jobs/{self.identifier(job_id)}/validation/{format}"
+        )
+        if response.status_code == 404:
+            return None
+        if response.is_error:
+            raise self._error(response, request_id)
+        expected = response.headers.get("X-Content-SHA256", "")
+        if not re.fullmatch(r"[0-9a-f]{64}", expected) or hashlib.sha256(response.content).hexdigest() != expected:
+            raise APIError(502, "artifact_checksum_mismatch", request_id)
+        return response.content, expected
 
     def findings(self, job_id: str):
         """Every finding of a completed validate/optimize job (SARIF 2.1.0 JSON)."""

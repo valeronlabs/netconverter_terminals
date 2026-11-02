@@ -7,6 +7,7 @@ only. GET /jobs/{id} returns `job_type` and, once completed, the job's
 `validation` or `optimization` result; that is what a download must keep.
 """
 import json
+import hashlib
 
 import httpx
 import pytest
@@ -85,3 +86,48 @@ def test_conversion_download_is_unchanged(tmp_path):
     finally:
         client.close()
     assert sorted(p.name for p in saved) == ["tra_dddddddddddd.report.json", "tra_dddddddddddd.translated.txt"]
+
+
+def test_validation_download_saves_all_server_verified_artifacts(tmp_path):
+    contents = {'ncir': b'{"format":"ncir"}', 'receipt': b'{"verdict":"partial"}',
+                'txt': b'Source observations only', 'pdf': b'%PDF-synthetic', 'xlsx': b'PKsynthetic'}
+    def server(request):
+        path = request.url.path
+        if path.endswith('/val_test'):
+            return httpx.Response(200, json={'success': True, 'data': {
+                'job_id': 'val_test', 'job_type': 'validate', 'status': 'completed', 'validation': VALIDATION}})
+        content = contents[path.rsplit('/', 1)[1]]
+        return httpx.Response(200, content=content, headers={'X-Content-SHA256': hashlib.sha256(content).hexdigest()})
+    client = ExternalClient(StaticCredential('nck_synthetic'), SERVER, transport=httpx.MockTransport(server))
+    try:
+        saved = download_external(client, 'val_test', Workspace(tmp_path))
+    finally:
+        client.close()
+    assert {p.name for p in saved} == {'val_test.validation.json', 'val_test.source.ncir', 'val_test.receipt.json',
+                                     'val_test.validation.txt', 'val_test.validation.pdf', 'val_test.validation.xlsx'}
+    assert next(p for p in saved if p.name.endswith('source.ncir')).read_bytes() == contents['ncir']
+
+
+@pytest.mark.parametrize('digest', [None, '0' * 64])
+def test_validation_artifact_missing_or_wrong_hash_is_refused(tmp_path, digest):
+    headers = {'X-Content-SHA256': digest} if digest else {}
+    client = ExternalClient(StaticCredential('nck_synthetic'), SERVER,
+        transport=httpx.MockTransport(lambda _: httpx.Response(200, content=b'changed', headers=headers)))
+    try:
+        with pytest.raises(APIError) as refused:
+            client.validation_artifact('val_test', 'ncir')
+        assert refused.value.code == 'artifact_checksum_mismatch'
+    finally:
+        client.close()
+    assert not list(tmp_path.iterdir())
+
+
+def test_validation_artifact_integrity_refusal_is_not_treated_as_absence():
+    client = ExternalClient(StaticCredential('nck_synthetic'), SERVER,
+        transport=httpx.MockTransport(lambda _: httpx.Response(409, json={'detail':'integrity failure'})))
+    try:
+        with pytest.raises(APIError) as refused:
+            client.validation_artifact('val_test', 'ncir')
+        assert refused.value.status == 409
+    finally:
+        client.close()

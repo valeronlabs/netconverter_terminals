@@ -85,6 +85,7 @@ def download_external(client, job_id: str, output) -> list:
 
     A validate or optimize job emits no translation: GET /jobs/{id} carries its
     result, saved as ``<job>.validation.json`` / ``<job>.optimization.json``.
+    Validation also downloads available NCIR, receipt, TXT, PDF and XLSX exports.
     """
     saved = []
     job = client.job(job_id)
@@ -96,7 +97,17 @@ def download_external(client, job_id: str, output) -> list:
         saved.append(_save_json(output, job_id, f"{key}.json", {
             "job_id": job_id, "job_type": job["job_type"], "status": job.get("status"),
             "source_vendor": job.get("source_vendor"), key: result}))
-        workbook = client.evidence_workbook(job_id)
+        workbook_saved = False
+        if key == "validation":
+            for fmt, filename in (("ncir", "source.ncir"), ("receipt", "receipt.json"),
+                                  ("txt", "validation.txt"), ("pdf", "validation.pdf"),
+                                  ("xlsx", "validation.xlsx")):
+                artifact = client.validation_artifact(job_id, fmt)
+                if artifact is not None:
+                    content, expected = artifact
+                    saved.append(output.save_artifact(job_id, filename, content, expected))
+                    workbook_saved |= fmt == "xlsx"
+        workbook = None if workbook_saved else client.evidence_workbook(job_id)
         if workbook:
             saved.append(output.save_artifact(job_id, "evidence.xlsx", workbook,
                                               hashlib.sha256(workbook).hexdigest()))
