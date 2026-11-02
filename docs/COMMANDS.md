@@ -132,6 +132,7 @@ netconverter connect --all               # every assistant found on this compute
 netconverter connect chatgpt             # ChatGPT / claude.ai: prints remote-connector setup steps
 netconverter mcp --workspace ~/migrations   # what an assistant runs; not for interactive use
 netconverter mcp --level none --workspace ~/migrations   # lower this folder's level for one bridge
+netconverter mcp --no-upload-confirm --workspace ~/migrations   # no confirmation forms (ChatGPT, Claude Code)
 netconverter privacy status              # this folder's exposure level, what each level shows, recent changes
 netconverter privacy level none          # verdicts and counts only (lowering needs no confirmation)
 netconverter privacy level full          # raising asks you to type "raise to full" in a terminal
@@ -212,38 +213,70 @@ delays a command; its result is cached in your user cache folder.
 
 | Tool | Returns |
 | --- | --- |
-| `submit_file(path, source_vendor, target_vendor?, job_type?, options?)` | `job_id`, `status`, `sha256`, `bytes`. `job_type`: `convert`, `validate`, `optimize`, or `analyze` (= validate). `options` keys (typed; anything else is refused naming it): `selected_device_groups`, `file_name`, `optimization_options` (optimize), and for convert `zone_mapping`, `remove_unused_objects`, `enable_appid`, `app_id_implementation`, `add_security_profiles`, `log_all_rules`, `implicit_deny`, `panos_target_version` / `routing_engine` / `default_profile_group` (Palo Alto targets), `panorama_device_group` / `panorama_template` (Panorama), `pipeline_mode` (pilot keys). On the full API the convert settings travel as a `yaml_v2` decisions document |
+| `submit_file(path, source_vendor, target_vendor?, job_type?, options?, confirm_token?)` | `job_id`, `status`, `sha256`, `bytes`. `job_type`: `convert`, `validate`, `optimize`, `prescan`, or `analyze` (= validate). `prescan` starts a guided migration: the job stops at a `psc_` prescan for your decisions (`target_vendor` optional; only `file_name` as an option) and the result adds `job_type`, `next_steps` and `guided_tools` (see Guided migration below). `confirm_token` only after a `confirmation_required` error. `options` keys (typed; anything else is refused naming it): `selected_device_groups`, `file_name`, `optimization_options` (optimize), and for convert `zone_mapping`, `remove_unused_objects`, `enable_appid`, `app_id_implementation`, `add_security_profiles`, `log_all_rules`, `implicit_deny`, `panos_target_version` / `routing_engine` / `default_profile_group` (Palo Alto targets), `panorama_device_group` / `panorama_template` (Panorama), `pipeline_mode` (pilot keys). On the full API the convert settings travel as a `yaml_v2` decisions document |
 | `job_status(job_id)` | Status, verdict, review flag, progress and stage when sent, reason counts, vendors |
 | `wait_for_job(job_id, timeout_s=45)` | The `job_status` summary plus `waited_s` and `timed_out` (plus `next` when still running: call it again); polls 2 s, ×1.5, up to 15 s apart, at most 600 s. The default stays under the 60 s tool timeout of Codex and OpenClaw; pass a larger `timeout_s` only when the client allows it. Sends MCP progress notifications when the call has a progress token |
-| `account()` | Signed out: `status` (`signed_out`, `keyring_unreachable`), `signed_in: false`, `message`, `client_version`, `update_available`, `latest_version` (not an error). Signed in: `tier`, `job_types`, `rate_limit_per_min`, `daily_quota`, `auth_kind`, `profile`, `client_version`, `update_available`, `latest_version`, `strict_mode` (true below `full`), `exposure_level` and `exposure_sections` (the level in force, see Exposure levels), `view_mode_grant` and `view_clamped` when the server reports them, `view_mode` (the view the server applies to this session, from `get_account`), `strict_enforced_by` (`server` when that view is strict, `client` while the bridge enforces it locally), `credential_source` (`clerk_session`, `api_key_environment`, `api_key_stored` or `none`; the one credential REST and the remote tools share) |
+| `account()` | Signed out: `status` (`signed_out`, `keyring_unreachable`), `signed_in: false`, `message`, `client_version`, `update_available`, `latest_version` (not an error). Signed in: `tier`, `job_types`, `rate_limit_per_min`, `daily_quota`, `auth_kind`, `profile`, `client_version`, `update_available`, `latest_version`, `strict_mode` (true below `full`), `exposure_level` and `exposure_sections` (the level in force, see Exposure levels), `view_mode_grant` and `view_clamped` when the server reports them, `view_mode` (the view the server applies to this session, from `get_account`), `strict_enforced_by` (`server` when that view is strict, `client` while the bridge enforces it locally), `guided_migration` (full API: `tools` the session lists, and `hidden_by_level` with the `fix` when the level hides them, or a `note` naming the write tools the server does not list for this account), `credential_source` (`clerk_session`, `api_key_environment`, `api_key_stored` or `none`; the one credential REST and the remote tools share) |
 | `download(job_id, dest_dir=".")` | Saved file names, sizes and SHA-256 |
 
 Every local tool declares an `outputSchema` for its `structuredContent` (error results carry
 none). When the assistant advertises form elicitation in `initialize` (Claude Code, Codex, Cursor
 CLI), `submit_file` first asks in the assistant's own dialog: "Upload <path> (<bytes>, SHA-256 …) to
 NetConverter for <job type>?". Accept uploads; Decline or a dismissed dialog sends nothing and the
-tool returns `upload_declined`. Without elicitation, or when the assistant answers the request with
-an error, the upload proceeds after the assistant's own tool approval, as before. The dialog shows
-the path, size and hash only, never the file's text.
+tool returns `upload_declined` (`reason`: `user_declined` or `form_dismissed`). Without elicitation,
+or when the assistant answers the request with an error, the upload proceeds after the assistant's
+own tool approval, as before. The dialog shows the path, size and hash only, never the file's text.
+`apply_mapping_answers` and `submit_conversion` ask the same way before a conversion is queued
+(`apply_declined`).
+
+Some assistants (ChatGPT, Claude Code) advertise form elicitation but decline without showing the
+form. A decline or dismissal that comes back within 1.5 seconds is treated as the client's, not
+yours: nothing is sent, the tool returns `confirmation_required` (`reason: client_declined_form`)
+with a single-use `confirm_token` bound to that exact call (10 minutes), and the bridge sends no
+more forms in that session. The assistant asks you in the conversation; only on your yes does it
+repeat the call with `confirm_token`. To skip forms entirely and rely on the assistant's own tool
+approval, start the bridge with `netconverter mcp --no-upload-confirm` (or set
+`NETCONVERTER_MCP_UPLOAD_CONFIRM=0` in the assistant's MCP server environment).
 
 The bridge also offers two MCP prompts: `guided-migration` (from a file path to a verdict and
 artifacts) and `mapping-review` (optional `job_id`: what was mapped, what needs review, what is
 blocked). Both tell the assistant it will not get configuration content and name the folder's
 exposure level. `--guided` keeps its own prompts (`migration-studio`, `pre-cutover-review`).
 
+### Guided migration (prescan → decisions → conversion)
+
+1. `submit_file(path, source_vendor, target_vendor?, job_type="prescan")` uploads the file and
+   returns a `psc_` job id; nothing is converted yet. `wait_for_job` until it is completed.
+2. `list_operations`, `get_decision_document` and `validate_decision_document` with
+   `job_id=psc_…` read the decisions the prescan found.
+3. With your OK, `propose_operations(job_id, changes, base_sha256)` records each choice as a new
+   revision, and `submit_conversion(job_id, revision)` queues the conversion (confirmed like an
+   upload); it answers with the new `tra_` job id. `wait_for_job` and `download` as usual.
+
+The guided tools are in the default list only, so they need exposure level `full`:
+run `netconverter privacy level full` in a terminal in the folder, then reconnect the assistant's
+netconverter server (assistants cache the tool list). `propose_operations` and `submit_conversion`
+are write tools: the server lists them only where they are enabled for your tenant, and checks
+and audits every call. `account` (`guided_migration`) and the remote `get_account` say which tools
+this session has and why any are missing. A sign-in (`netconverter login --clerk`) or an
+enterprise API key with `write:jobs` both work; pilot (Terminal Quick) keys have no prescan.
+
 Remote NetConverter tools are proxied only from a fixed allowlist, and never a
-`submit_*` tool. Default: `compare_against_intent`, `fetch`, `get_account`,
+`submit_*` tool other than `submit_conversion` (a prescan id and a revision, no
+configuration text). Default: `compare_against_intent`, `fetch`, `get_account`,
 `get_acl_summary`, `get_critical_object_impact`, `get_dependency_chains`,
 `get_evidence`, `get_interface_summary`, `get_job_brief`, `get_management_config`,
 `get_nat_summary`, `get_object_dependencies`, `get_object_summary`, `get_report`,
 `get_route_summary`, `get_target_config`, `get_translation_edge_summary`,
 `get_unused_objects`, `get_vpn_summary`, `get_zone_summary`, `kb_explain`,
 `kb_search`, `list_jobs`, `list_objects_with_attribute`, `list_rules_matching`,
-`query_ir`, `search`, `select_job`, `simulate_flow`, `vendor_capability_lookup`.
+`query_ir`, `search`, `select_job`, `simulate_flow`, `vendor_capability_lookup`,
+`get_mapping_questions`, `validate_mapping`, `apply_mapping_answers`, `list_operations`,
+`get_decision_document`, `validate_decision_document`, `propose_operations`, `submit_conversion`.
 At levels `none`, `masked` and `selected` (the default is masked; `full` uses the default list):
 `list_jobs`, `select_job`, `get_account`, `search`, `fetch`,
 `kb_search`, `kb_explain`, `vendor_capability_lookup`, `get_job_brief`,
-`get_evidence`, `get_report`, plus the chosen sections' tools under `selected`. A listed tool appears
+`get_evidence`, `get_report`, the three guided-mapping tools, plus the chosen sections' tools under `selected`. A listed tool appears
 only if the server offers it.
 The bridge sends the level on every request (`X-NetConverter-View: none|masked|selected|full`;
 the server may only lower the grant's view, never raise it) and reads the view in force from
@@ -259,6 +292,7 @@ Environment: `NETCONVERTER_URL`, `NETCONVERTER_PROVIDER`, `NETCONVERTER_MODEL`,
 your sign-in, while `mcp` prefers the sign-in and says on stderr which API key it leaves unused;
 `NETCONVERTER_MCP_AUTH` overrides it for `mcp` only), `NETCONVERTER_TRUSTED_HOSTS`, `NETCONVERTER_MCP_VIEW=none|masked|selected|full|strict` (same as `mcp --level`; it can only lower
 the folder's exposure level, and an explicit flag wins),
+`NETCONVERTER_MCP_UPLOAD_CONFIRM=0` (same as `mcp --no-upload-confirm`),
 `NETCONVERTER_NO_UPDATE_CHECK=1` (no daily update check or notice; `account` then reports
 `update_available: null`), `NETCONVERTER_KEYRING_TIMEOUT_S` (how long to wait for the OS keyring
 before reporting it locked; default 5), `NETCONVERTER_CREDENTIAL_STORE`,
@@ -309,6 +343,8 @@ file is reported as a missing file, never as "not signed in".
 | "the credentials are in the encrypted file …, which this process cannot open" | Set `NETCONVERTER_CREDENTIAL_PASSPHRASE` (or `NETCONVERTER_CREDENTIAL_PASSPHRASE_FILE`) to the passphrase used at sign-in, in the shell or in the AI client's `env` for the bridge. "does not open" means a wrong passphrase or an altered file |
 | "Your system keyring is locked" (exit 3) | The OS keyring did not answer within 5 seconds (a locked Secret Service collection after a reboot, or a keychain waiting for a password). Unlock it (for example by logging in to the desktop session), or sign in again with `netconverter login` |
 | `keyring_unreachable` from the bridge (Linux) | The assistant launched `netconverter mcp` without `DBUS_SESSION_BUS_ADDRESS`; the bridge tries `$XDG_RUNTIME_DIR/bus` and `/run/user/<uid>/bus`, else set that variable (or `NETCONVERTER_API_KEY`) in the assistant's MCP server environment and restart it |
+| `submit_file` always fails `upload_declined` / `confirmation_required` (ChatGPT, Claude Code) | The assistant declines confirmation forms without showing them. Say yes in the conversation so it can retry with the `confirm_token`, or start the bridge with `--no-upload-confirm` (`NETCONVERTER_MCP_UPLOAD_CONFIRM=0`) |
+| Guided tools (`list_operations`, `submit_conversion` …) missing | They need exposure level `full` (`netconverter privacy level full`, then reconnect the assistant); the two write tools also need the tenant to have them enabled. `account` → `guided_migration` says which |
 | Assistant cannot see a NetConverter tool | The bridge lists only allowlisted remote tools the server offers (fewer below `full`; `netconverter privacy status` shows the level); update the client with `netconverter update` |
 | `netconverter update` says uv is not on PATH | Install uv, or follow the printed download, `shasum -a 256 -c SHA256SUMS` and `uv tool install --force` steps |
 

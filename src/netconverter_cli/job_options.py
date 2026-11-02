@@ -57,7 +57,7 @@ BODY_OPTIONS = {
                               "properties": {k: {"type": "boolean"} for k in OPTIMIZATION_FLAGS},
                               "description": "Optimize only: analysis switches."}, ("optimize",)),
     "file_name": ({**_text(255), "description": "Name shown for the job in the portal."},
-                  ("convert", "validate", "optimize")),
+                  ("convert", "validate", "optimize", "prescan")),
 }
 DECISION_OPTIONS = {
     "zone_mapping": ({"type": "object", "additionalProperties": _text(200), "maxProperties": 500,

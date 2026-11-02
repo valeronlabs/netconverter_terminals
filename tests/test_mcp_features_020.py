@@ -121,7 +121,17 @@ def test_mapping_review_takes_an_optional_job_id(workspace):
 
 # -- elicitation -----------------------------------------------------------------
 
-def session(workspace, capabilities, *after, protocol="2025-06-18", server=None):
+def slow_clock(step=5.0):
+    """A clock where every reading is ``step`` seconds later: answers look like a person's (#37)."""
+    now = [0.0]
+
+    def tick():
+        now[0] += step
+        return now[0]
+    return tick
+
+
+def session(workspace, capabilities, *after, protocol="2025-06-18", server=None, clock=None):
     """Run initialize + one submit_file call, then the given client lines, through serve()."""
     upstream = server or QuickServer()
     bridge = make_bridge(workspace, upstream)
@@ -133,7 +143,10 @@ def session(workspace, capabilities, *after, protocol="2025-06-18", server=None)
         *after,
     ]
     out = io.StringIO()
-    StdioServer(bridge).serve(io.StringIO("".join(json.dumps(m) + "\n" for m in lines)), out)
+    stdio = StdioServer(bridge)
+    if clock is not None:
+        stdio._clock = clock
+    stdio.serve(io.StringIO("".join(json.dumps(m) + "\n" for m in lines)), out)
     sent = [json.loads(line) for line in out.getvalue().splitlines()]
     uploads = [r for r in upstream.requests if r.url.path.endswith("/quick/configurations")]
     return sent, uploads
@@ -185,7 +198,7 @@ def test_form_mode_is_named_for_2025_11_25_clients(workspace):
 
 @pytest.mark.parametrize("reply", [answer("decline"), answer("cancel"), answer("accept", {"upload": False})])
 def test_declined_or_dismissed_elicitation_uploads_nothing(workspace, reply):
-    sent, uploads = session(workspace, {"elicitation": {}}, reply)
+    sent, uploads = session(workspace, {"elicitation": {}}, reply, clock=slow_clock())
     result = tool_reply(sent)
     payload = json.loads(result["content"][0]["text"])
     assert result["isError"] is True and payload["error"] == "upload_declined"

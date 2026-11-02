@@ -7,7 +7,7 @@
 NetConverter — by ValeronLabs LLC.
 
 ```text
-◆ NetConverter  v0.6.0                      ● Server   ◆ Bridge claude-code · 2m ago
+◆ NetConverter  v0.7.0                      ● Server   ◆ Bridge claude-code · 2m ago
 ▍ Start
 ▍ /convert    Migrate a configuration to another vendor
 ▍ /validate   Check a configuration before migrating
@@ -107,9 +107,18 @@ works on your configurations only through the bridge.
 Then ask your assistant, for example: *"Validate edge-fw.conf and tell me what it finds,"*
 *"Convert it to Palo Alto XML,"* *"Can WEB reach DB on tcp/1433?"*
 
+**Guided migration:** *"Prescan edge-fw.conf for Palo Alto XML and walk me through the decisions."*
+`submit_file(..., job_type="prescan")` stops at a `psc_` prescan; the assistant reads the decisions
+(`list_operations`, `get_decision_document`, `validate_decision_document`), records your choices
+(`propose_operations`) and, with your OK, queues the conversion (`submit_conversion`). These tools
+need the folder at `netconverter privacy level full`; the two write tools also need them enabled
+for your tenant (docs/COMMANDS.md § Guided migration). If your assistant declines the upload
+confirmation without showing it (ChatGPT, Claude Code), approve in the conversation or run the
+bridge with `--no-upload-confirm`.
+
 Bridge tools: `submit_file`, `job_status`, `wait_for_job`, `account`, `download`,
-plus an allowlist of NetConverter's read-only tools (reports, evidence, NAT, flows,
-knowledge base). What the assistant sees is this folder's **exposure level**
+plus an allowlist of NetConverter's tools (reports, evidence, NAT, flows, knowledge base,
+guided mapping and guided migration). What the assistant sees is this folder's **exposure level**
 (`netconverter privacy level none|masked|selected|full`, default **masked**: the strict view,
 names as tokens, addresses masked, no configuration content); secrets are removed at every
 level, and raising the level needs a confirmation typed in a terminal (docs/PRIVACY.md).

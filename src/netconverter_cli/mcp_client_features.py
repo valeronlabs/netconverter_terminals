@@ -32,11 +32,24 @@ _JOB_SUMMARY = {
     "source_vendor": _VENDOR, "target_vendor": _VENDOR,
 }
 
+# Which guided-migration tools a session lists, or why not (aws#1090).
+_GUIDED = {
+    "type": "object",
+    "properties": {"exposure_level": {"type": "string", "enum": list(LEVELS)},
+                   "tools": {"type": "array", "items": {"type": "string"}},
+                   "hidden_by_level": {"type": "boolean"}, "fix": {"type": "string"},
+                   "note": {"type": "string"}},
+    "required": ["exposure_level", "tools"],
+    "additionalProperties": False,
+}
+
 OUTPUT_SCHEMAS = {
     "submit_file": {
         "type": "object",
         "properties": {"job_id": _JOB_ID, "status": _STATUS, "sha256": _SHA256,
-                       "bytes": {"type": "integer", "minimum": 1}},
+                       "bytes": {"type": "integer", "minimum": 1},
+                       "job_type": {"type": "string", "enum": ["prescan"]},
+                       "next_steps": {"type": "string"}, "guided_tools": _GUIDED},
         "required": ["job_id", "status", "sha256", "bytes"],
         "additionalProperties": False,
     },
@@ -68,6 +81,7 @@ OUTPUT_SCHEMAS = {
             "view_mode": {"type": ["string", "null"]}, "view_mode_grant": {"type": "string"},
             "view_clamped": {"type": "boolean"},
             "strict_enforced_by": {"type": ["string", "null"], "enum": ["server", "client", None]},
+            "guided_migration": _GUIDED,
         },
         "required": ["client_version"],
     },
@@ -179,9 +193,16 @@ def upload_request(details: dict, protocol: str) -> dict:
 def apply_request(details: dict, protocol: str) -> dict:
     """elicitation/create params before a guided-mapping apply queues a re-conversion (#12)."""
     count = details.get("answers") or 0
-    message = (f"Apply {count} mapping answer{'' if count == 1 else 's'} to job {details['job_id']}? "
-               "NetConverter queues a new conversion with these decisions; your configuration is not "
-               "shown to the assistant.")
+    if details.get("tool") == "submit_conversion":
+        revision = details.get("revision")
+        message = (f"Convert prescan {details['job_id']} with decision revision "
+                   f"{revision if type(revision) is int else '(as given)'}? NetConverter queues the "
+                   "conversion as a new job with the decisions you recorded; your configuration is not "
+                   "shown to the assistant.")
+    else:
+        message = (f"Apply {count} mapping answer{'' if count == 1 else 's'} to job {details['job_id']}? "
+                   "NetConverter queues a new conversion with these decisions; your configuration is not "
+                   "shown to the assistant.")
     params = {"message": message, "requestedSchema": {
         "type": "object",
         "properties": {"apply": {"type": "boolean", "title": "Queue the new conversion",

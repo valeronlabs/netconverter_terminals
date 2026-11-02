@@ -118,7 +118,9 @@ def test_stdio_asks_the_client_before_apply_and_honours_a_decline(tmp_path):
         {"jsonrpc": "2.0", "id": "nc-elicit-1", "result": {"action": "decline"}},
     ]
     out = io.StringIO()
-    StdioServer(bridge).serve(io.StringIO("\n".join(json.dumps(m) for m in lines) + "\n"), out)
+    stdio = StdioServer(bridge)
+    stdio._clock = iter(range(0, 1000, 5)).__next__  # a person's answer takes seconds (#37)
+    stdio.serve(io.StringIO("\n".join(json.dumps(m) for m in lines) + "\n"), out)
     sent = [json.loads(line) for line in out.getvalue().splitlines()]
     ask = next(m for m in sent if m.get("method") == "elicitation/create")
     assert "re-conversion" in ask["params"]["message"] or "new conversion" in ask["params"]["message"]

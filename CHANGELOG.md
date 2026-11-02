@@ -1,5 +1,25 @@
 # Changelog
 
+## 0.7.0 — 2026-11-02
+
+- New: guided migration from your AI assistant (devnexthop/aws-netconverter.ai#1090).
+  `submit_file(..., job_type="prescan")` uploads the file and stops at a `psc_` prescan
+  (`target_vendor` optional); the result names the next steps. The bridge now proxies
+  `list_operations`, `get_decision_document`, `validate_decision_document`,
+  `propose_operations` and `submit_conversion` (the one remote `submit_*` it allows: a prescan
+  id and a revision, no configuration text). They need exposure level `full`; the two write
+  tools appear only where the server enables them for the tenant, and the server gates and
+  audits each call. `submit_conversion` asks for confirmation like an upload.
+- New: `account` reports `guided_migration` (the guided tools this session lists, or the fix
+  when the level hides them), and the remote `get_account` carries the same note below `full`.
+- Fix (#37): assistants that advertise forms but decline without showing them (ChatGPT, Claude
+  Code) no longer block every upload. A decline within 1.5 s returns `confirmation_required`
+  with a single-use `confirm_token` for that exact call: the assistant asks you in the
+  conversation and retries with it; no more forms are sent in that session. Declines now carry
+  `reason` (`user_declined`, `form_dismissed`, `client_declined_form`). New
+  `netconverter mcp --no-upload-confirm` / `NETCONVERTER_MCP_UPLOAD_CONFIRM=0` turns the forms
+  off and relies on the assistant's own tool approval.
+
 ## 0.6.0 — 2026-10-30
 
 - Guided drafts retain the server-advertised ASA target format (Palo Alto SET,

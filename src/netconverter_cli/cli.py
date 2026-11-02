@@ -191,6 +191,11 @@ def mcp_view_default() -> str | None:
     return value if value in MCP_VIEWS else None
 
 
+def mcp_upload_confirm_default() -> bool:
+    """`mcp` asks for upload/convert confirmation forms unless NETCONVERTER_MCP_UPLOAD_CONFIRM is 0/false/off (#37)."""
+    return os.getenv("NETCONVERTER_MCP_UPLOAD_CONFIRM", "").strip().lower() not in {"0", "false", "no", "off"}
+
+
 def mcp_auth_default() -> str:
     """`mcp --auth` default: NETCONVERTER_MCP_AUTH, else NETCONVERTER_AUTH (#16), else auto."""
     for name in ("NETCONVERTER_MCP_AUTH", "NETCONVERTER_AUTH"):
@@ -281,7 +286,7 @@ def run_mcp(args):
             options["credential_loader"] = lambda: choose_mcp_credential(args.auth, args.server, mcp_url)
         run_stdio(Bridge(args.workspace, args.server, rest, remote, strict=strict,
                          credential_source=source, level=cap.level, sections=cap.sections,
-                         workspace_level=True, **options))
+                         workspace_level=True, upload_confirm=getattr(args, "upload_confirm", True), **options))
     finally:
         if remote:
             remote.close()
@@ -606,7 +611,13 @@ def parser():
     mcp.add_argument("--strict", dest="view", action="store_const", const="strict",
                      help="at most masked (the strict view)")
     mcp.add_argument("--full", dest="view", action="store_const", const="full",
-                     help="up to full, when this folder's level is full")
+                     help="up to full, when this folder's level is full (`netconverter privacy level full`; "
+                          "the guided-migration tools, prescan to submit_conversion, need it)")
+    mcp.add_argument("--no-upload-confirm", dest="upload_confirm", action="store_false",
+                     default=mcp_upload_confirm_default(),
+                     help="never send a confirmation form before an upload or a queued conversion; the AI "
+                          "client's own tool approval confirms instead (for clients that decline forms "
+                          "unseen, e.g. ChatGPT, Claude Code; NETCONVERTER_MCP_UPLOAD_CONFIRM=0)")
     mcp.add_argument("--workspace", default=argparse.SUPPRESS, help="folder the file tools may read and write")
     from .connect import CLIENTS as _AI_CLIENTS
     connect = subs.add_parser(

@@ -11,7 +11,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 
-JOB_TYPES = ("convert", "validate", "optimize")
+JOB_TYPES = ("convert", "validate", "optimize", "prescan")
 QUICK_SOURCES = ("cisco_asa", "palo_alto_set", "palo_alto_xml", "palo_alto_panorama")
 QUICK_LIMIT_BYTES = 50_000
 DEVICE_TYPES = ("firewall", "router", "switch")
@@ -32,6 +32,7 @@ LABELS = {
     "convert": "Convert",
     "validate": "Validate",
     "optimize": "Optimize",
+    "prescan": "Prescan",
     "analyze": "Validate",
 }
 FIELD_LABELS = {

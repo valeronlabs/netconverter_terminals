@@ -363,7 +363,9 @@ def test_remote_allowlist_rules():
     from netconverter_cli.mcp_server import REMOTE_TOOLS_DEFAULT, REMOTE_TOOLS_STRICT, remote_allowed
 
     assert REMOTE_TOOLS_STRICT <= REMOTE_TOOLS_DEFAULT
-    assert not any(n.startswith("submit_") for n in REMOTE_TOOLS_DEFAULT)
+    # submit_conversion (a prescan id and a revision, aws#1090) is the one remote submit_*
+    assert {n for n in REMOTE_TOOLS_DEFAULT if n.startswith("submit_")} == {"submit_conversion"}
+    assert remote_allowed("submit_conversion") and not remote_allowed("submit_conversion", REMOTE_TOOLS_STRICT)
     assert remote_allowed("get_account") and remote_allowed("get_account", REMOTE_TOOLS_STRICT)
     assert not remote_allowed("submit_job", frozenset({"submit_job"}))  # never, even if listed
     assert not remote_allowed("get_nat_summary", REMOTE_TOOLS_STRICT)
@@ -707,7 +709,10 @@ def test_account_returns_only_allowlisted_fields(workspace, monkeypatch):
                        "client_version": __version__, "update_available": True,
                        "latest_version": "9.9.9", "strict_mode": False, "credential_source": None,
                        "view_mode": None, "strict_enforced_by": None,
-                       "exposure_level": "full", "exposure_sections": []}  # #13
+                       "exposure_level": "full", "exposure_sections": [],  # #13
+                       "guided_migration": {"exposure_level": "full", "tools": [],  # aws#1090
+                                            "note": "remote tools are off for this bridge "
+                                                    "(--no-remote, or no credential at start)"}}
     wire = json.dumps(result)
     for secret in ("pilot@example.test", "SECRET_TOKEN_VALUE", "nck_ab", "tenant-synthetic", "k1"):
         assert secret not in wire
