@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.7.3 — 2026-11-03
+
+- Recover an expired Clerk sign-in in the running MCP bridge after a separate `netconverter login --clerk`, without restarting the assistant.
+- Keep REST and remote MCP on the same credential, clear previous-login session/view/confirmation caches, and preserve a newer login when an older refresh or logout finishes.
+- Refuse rejected credentials left behind by a failed store deletion; preserve bounded refresh and trusted-host restrictions.
+
 ## 0.7.2 — 2026-11-02
 
 - Validation downloads include canonical NCIR, receipt JSON, TXT, PDF and XLSX from the governed export API, alongside the summary JSON.
