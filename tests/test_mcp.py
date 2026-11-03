@@ -372,6 +372,22 @@ def test_remote_allowlist_rules():
     assert not remote_allowed(None)
 
 
+@pytest.mark.parametrize("strict", [False, True])
+def test_diagram_manifest_is_proxied_without_opening_the_allowlist(workspace, strict):
+    bridge, remote_server = remote_bridge(
+        workspace, ("get_diagram", "render_arbitrary_diagram", "submit_diagram"), strict=strict)
+    assert [tool["name"] for tool in bridge.list_tools()] == LOCAL + ["get_diagram"]
+    arguments = {"job_id": "val_synthetic", "kind": "topology", "side": "source"}
+    result = bridge.call("get_diagram", arguments)
+    assert result["isError"] is False
+    assert result["structuredContent"]["args"] == arguments
+    for name in ("render_arbitrary_diagram", "submit_diagram"):
+        assert bridge.call(name, {})["isError"] is True
+    calls = [json.loads(request.content)["params"]["name"] for request in remote_server.requests
+             if json.loads(request.content).get("method") == "tools/call"]
+    assert calls == (["get_account"] if strict else []) + ["get_diagram"]
+
+
 def test_strict_mode_proxies_only_the_strict_set(workspace):
     advertised = ("list_jobs", "get_report", "get_nat_summary", "simulate_flow", "query_ir",
                   "get_account", "kb_search", "submit_job")
