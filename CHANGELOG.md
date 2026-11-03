@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.7.2 — 2026-11-02
+
+- Validation downloads include canonical NCIR, receipt JSON, TXT, PDF and XLSX from the governed export API, alongside the summary JSON.
+- Verify server content hashes before atomic workspace writes. Authorization and integrity failures remain explicit; only missing artifacts use the historical fallback.
+- Preserve the existing governed diagram discovery, downloads and native previews.
+
 ## 0.7.1 — 2026-11-02
 
 - Proxy governed `get_diagram` discovery for selected jobs in full and strict views.
