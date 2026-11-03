@@ -2,6 +2,23 @@
 
 Updated for client 0.1.5, October 1, 2026.
 
+## 0.7.3 Clerk recovery candidate
+
+The complete client suite passed: **875 passed, 24 skipped**. Seventeen synthetic
+recovery cases include a persistent newline-delimited MCP server, external saved-login
+replacement, remote session/view reset, stale confirmation refusal, failed deletion,
+logout and locked-store recovery. The focused authentication suite passed 84 tests;
+the frozen 0.7.2 implementation failed 14 of the 17 regression cases.
+
+The built 0.7.3 wheel was installed in an isolated macOS environment. A genuine MCP
+SDK client negotiated protocol 2025-11-25 and successfully read the authenticated
+account and paginated evidence for an existing synthetic job. No configuration was
+uploaded and no real credential was expired or revoked. This proves installed-wheel
+read compatibility; expired-session recovery itself is tested with synthetic stores
+and transports. Windows and other assistant UI acceptance are not newly claimed.
+
+Release publication remains separate from this candidate verification.
+
 ## 0.3.0 status: pending
 
 Not verified for 0.3.0. The client suite passes with mocked servers and a mocked
