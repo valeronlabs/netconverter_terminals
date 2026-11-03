@@ -7,18 +7,21 @@ from .draft_cli import _revision
 def add_parser(subparsers):
     project = subparsers.add_parser("project", help="prepare a candidate multi-device project; no project execution")
     commands = project.add_subparsers(dest="project_command", required=True)
-    commands.add_parser("schema")
-    get = commands.add_parser("get")
-    get.add_argument("project_id")
-    get.add_argument("--revision", type=_revision, required=True)
-    for name in ("prepare", "propose"):
-        command = commands.add_parser(name)
+    commands.add_parser("schema", help="print the project document schema the server accepts")
+    get = commands.add_parser("get", help="show one project revision")
+    get.add_argument("project_id", help="project id returned by project prepare")
+    get.add_argument("--revision", type=_revision, required=True, help="project revision (a positive integer)")
+    for name, text in (("prepare", "create a candidate project from prepared drafts and their links"),
+                       ("propose", "record a new project revision (devices and links)")):
+        command = commands.add_parser(name, help=text)
         if name == "propose":
-            command.add_argument("project_id")
-            command.add_argument("--expected-revision", type=_revision, required=True)
+            command.add_argument("project_id", help="project id returned by project prepare")
+            command.add_argument("--expected-revision", type=_revision, required=True,
+                                 help="the revision you are changing; refused if the project moved on")
         command.add_argument("--devices", required=True, help="JSON array of device_id, draft_id and revision references")
         command.add_argument("--links", required=True, help="JSON array of complete links and explicit expectations")
-        command.add_argument("--idempotency-key", required=True)
+        command.add_argument("--idempotency-key", required=True,
+                             help="any unique string; reuse it when retrying the same request")
 
 
 def run(args, credential):

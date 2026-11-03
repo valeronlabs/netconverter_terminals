@@ -28,23 +28,33 @@ def add_parser(subparsers):
     commands = draft.add_subparsers(dest="draft_command", required=True)
     commands.add_parser("catalog", help="show design operations and qualification gaps")
     context = commands.add_parser("context", help="show bounded interface facts and proposed mappings")
-    context.add_argument("draft_id")
-    context.add_argument("--revision", type=_revision, required=True)
-    context.add_argument("--view-id", choices=["strict", "interfaces"], default="interfaces")
-    context.add_argument("--offset", type=int)
-    context.add_argument("--limit", type=int)
+    context.add_argument("draft_id", help="draft id returned by draft prepare")
+    context.add_argument("--revision", type=_revision, required=True, help="draft revision to read (a positive integer)")
+    context.add_argument("--view-id", choices=["strict", "interfaces"], default="interfaces",
+                         help="interfaces (names and proposed mappings) or strict (tokens only)")
+    context.add_argument("--offset", type=int, help="first item to return, for paging")
+    context.add_argument("--limit", type=int, help="most items to return, for paging")
     prepare = commands.add_parser("prepare", help="prepare a draft without executing a migration")
-    prepare.add_argument("path")
-    prepare.add_argument("--vendor", dest="source_vendor", default="cisco_asa")
-    prepare.add_argument("--to", dest="target_vendor", default="palo_alto_set")
-    prepare.add_argument("--workflow", choices=["studio", "quick"], default="studio")
+    prepare.add_argument("path", help="configuration file inside the workspace folder")
+    prepare.add_argument("--vendor", dest="source_vendor", default="cisco_asa", help="source vendor code")
+    prepare.add_argument("--to", dest="target_vendor", default="palo_alto_set",
+                         help="target vendor code the server advertises for this credential")
+    prepare.add_argument("--workflow", choices=["studio", "quick"], default="studio",
+                         help="studio (review every decision) or quick (explicit defaults where they suffice)")
     prepare.add_argument("--idempotency-key", required=True, help="reuse this key when retrying the same request")
-    for name in ("decisions", "export", "import", "propose", "validate", "review", "execute"):
-        command = commands.add_parser(name)
-        command.add_argument("draft_id")
-        command.add_argument("--revision", type=_revision, required=True)
+    for name, text in (("decisions", "show the decisions of one draft revision"),
+                       ("export", "save one draft revision's decisions document (YAML) in the workspace"),
+                       ("import", "upload an edited decisions document as a new draft revision"),
+                       ("propose", "record typed operations or decision choices as a new revision"),
+                       ("validate", "check one draft revision; nothing is executed"),
+                       ("review", "request the human review of one draft revision"),
+                       ("execute", "run a reviewed draft revision (needs --approval-ref)")):
+        command = commands.add_parser(name, help=text)
+        command.add_argument("draft_id", help="draft id returned by draft prepare")
+        command.add_argument("--revision", type=_revision, required=True, help="draft revision (a positive integer)")
         if name not in {"decisions", "export"}:
-            command.add_argument("--idempotency-key", required=True)
+            command.add_argument("--idempotency-key", required=True,
+                                 help="any unique string; reuse it when retrying the same request")
         if name == "import":
             command.add_argument("--yaml", dest="yaml_path", required=True,
                                  help="local YAML path inside the workspace; uploaded directly")
@@ -57,12 +67,13 @@ def add_parser(subparsers):
     for name in ("job-status", "download-result"):
         command = commands.add_parser(name, help="inspect a draft execution" if name == "job-status"
                                       else "download one verified artifact from a draft execution")
-        command.add_argument("job_id")
-        command.add_argument("--draft-id", required=True)
-        command.add_argument("--revision", type=_revision, required=True)
+        command.add_argument("job_id", help="job id returned by draft execute")
+        command.add_argument("--draft-id", required=True, help="the draft the job ran")
+        command.add_argument("--revision", type=_revision, required=True, help="the draft revision the job ran")
         if name == "download-result":
-            command.add_argument("--artifact-id", required=True)
-            command.add_argument("--manifest-revision", type=_revision, required=True)
+            command.add_argument("--artifact-id", required=True, help="artifact id from draft job-status")
+            command.add_argument("--manifest-revision", type=_revision, required=True,
+                                 help="manifest revision from draft job-status")
     return draft
 
 

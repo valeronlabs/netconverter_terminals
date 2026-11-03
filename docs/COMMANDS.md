@@ -1,5 +1,7 @@
 # Command and settings reference
 
+Every command and flag, generated from the code: [CLI_REFERENCE.md](CLI_REFERENCE.md). What the concepts and error codes mean: [GUIDE.md](GUIDE.md).
+
 Run `netconverter` in a configuration folder for the app.
 `netconverter --help` lists plain CLI commands. Global options go **before** the
 subcommand:
