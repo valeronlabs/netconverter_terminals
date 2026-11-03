@@ -25,7 +25,7 @@ from urllib.parse import parse_qs, urlencode, urlsplit
 
 import httpx
 
-from .credentials import CredentialStoreError, delete_secret, load_secret, prepare_store, save_secret
+from .credentials import CredentialStoreError, KeyringLocked, delete_secret, load_secret, prepare_store, save_secret
 from .errors import SIGNED_OUT
 
 ISSUER = "https://clerk.netconverter.ai"
@@ -481,6 +481,8 @@ class ClerkSession:
         self._transport = transport
         self._clock = clock
         self._tokens = self.store.load()
+        self._invalidated_fingerprint: str | None = None
+        self._session_generation = 0
         self._discovery: Discovery | None = None
         self._lock = threading.Lock()
 
@@ -493,8 +495,35 @@ class ClerkSession:
             self._discovery = discover(http, self.issuer)
         return self._discovery
 
+    @staticmethod
+    def _fingerprint(tokens: TokenSet) -> str:
+        # Keep only a digest of rejected credentials, not another token copy.
+        value = json.dumps([tokens.access_token, tokens.refresh_token])
+        return hashlib.sha256(value.encode()).hexdigest()
+
+    def _reload_locked(self) -> bool:
+        """Recover a later login from this session's existing issuer-bound store."""
+        if self._tokens is not None:
+            return False
+        try:
+            saved = self.store.load()
+        except (CredentialStoreError, KeyringLocked):
+            raise ClerkError("Could not read your NetConverter sign-in; unlock the credential store and retry") from None
+        if saved is None or self._fingerprint(saved) == self._invalidated_fingerprint:
+            return False
+        self._tokens = saved
+        self._session_generation += 1
+        return True
+
+    def session_generation(self) -> int:
+        """Reload a later login and identify caches belonging to an older login."""
+        with self._lock:
+            self._reload_locked()
+            return self._session_generation
+
     def token(self) -> str:
         with self._lock:
+            self._reload_locked()
             if self._tokens is None:
                 raise ClerkError(SIGNED_OUT)
             if self._tokens.expired(self._clock()) and self._tokens.refresh_token:
@@ -503,6 +532,10 @@ class ClerkSession:
 
     def refresh(self) -> bool:
         with self._lock:
+            # A new login already replaced the refused token; don't immediately
+            # exchange its refresh token in response to the old request's 401.
+            if self._reload_locked() and not self._tokens.expired(self._clock()):
+                return True
             if self._tokens is None or not self._tokens.refresh_token:
                 return False
             try:
@@ -517,8 +550,14 @@ class ClerkSession:
                 tokens = refresh_tokens(http, self._disc(http), self._tokens.refresh_token)
             except OAuthError as exc:
                 if exc.error in {"invalid_grant", "invalid_token", "unauthorized_client"}:
-                    self.store.clear()
+                    self._invalidated_fingerprint = self._fingerprint(self._tokens)
                     self._tokens = None
+                    self._session_generation += 1
+                    # A separate login may have finished while refresh was in
+                    # flight. Its replacement must not be cleared by this failure.
+                    saved = self.store.load()
+                    if saved is not None and self._fingerprint(saved) == self._invalidated_fingerprint:
+                        self.store.clear()
                     raise ClerkError(
                         "Your NetConverter sign-in expired; run `netconverter login --clerk`"
                     ) from None
@@ -547,20 +586,28 @@ class ClerkSession:
                 return {}
 
     def revoke_and_clear(self) -> bool:
-        tokens, self._tokens = self._tokens, None
-        if tokens:
-            try:
-                with _http(self._transport) as http:
-                    disc = self._disc(http)
-                    if disc.revocation_endpoint:
-                        for value, hint in ((tokens.refresh_token, "refresh_token"),
-                                            (tokens.access_token, "access_token")):
-                            if value:
-                                http.post(disc.revocation_endpoint, data={
-                                    "token": value, "token_type_hint": hint, "client_id": CLIENT_ID})
-            except (httpx.HTTPError, ClerkError):
-                pass  # local removal below is what logout guarantees
-        return self.store.clear()
+        with self._lock:
+            self._reload_locked()
+            tokens, self._tokens = self._tokens, None
+            if tokens:
+                self._invalidated_fingerprint = self._fingerprint(tokens)
+            self._session_generation += 1
+            if tokens:
+                try:
+                    with _http(self._transport) as http:
+                        disc = self._disc(http)
+                        if disc.revocation_endpoint:
+                            for value, hint in ((tokens.refresh_token, "refresh_token"),
+                                                (tokens.access_token, "access_token")):
+                                if value:
+                                    http.post(disc.revocation_endpoint, data={
+                                        "token": value, "token_type_hint": hint, "client_id": CLIENT_ID})
+                except (httpx.HTTPError, ClerkError):
+                    pass  # local removal below is what logout guarantees
+            saved = self.store.load()
+            if tokens and saved and self._fingerprint(saved) != self._fingerprint(tokens):
+                return True  # a later login is not the session being revoked
+            return self.store.clear()
 
 
 UNNAMED_ORG = "(unnamed organization)"

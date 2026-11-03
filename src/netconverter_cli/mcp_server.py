@@ -27,7 +27,7 @@ from pathlib import Path
 from . import __version__, activity, update
 from .api import APIError, Client, ExternalClient
 from .backend import EXTERNAL_MAX_BYTES, detect_profile, download_external, submit_external
-from .clerk import ClerkError
+from .clerk import ClerkError, ClerkSession
 from .controller import fetch_artifacts
 from .credentials import keyring_problem
 from . import errors, job_options, mcp_workflows
@@ -465,6 +465,7 @@ class Bridge:
         self._draft_service = draft_service
         self.server = server
         self.rest_credential = rest_credential
+        self._credential_generation = 0
         self.remote = remote
         self._server_view: str | None = None  # the server's view mode for this session, once known
         self._view_warned = False
@@ -489,6 +490,16 @@ class Bridge:
     # -- REST clients ------------------------------------------------------
 
     def _reload_credential(self) -> None:
+        if isinstance(self.rest_credential, ClerkSession):
+            generation = self.rest_credential.session_generation()
+            if generation != self._credential_generation:
+                self._credential_generation = generation
+                self._profile, self._server_view = None, None
+                self._view_warned = False
+                self._remote_names.clear()
+                self._confirm_tokens.clear()
+                if isinstance(self.remote, RemoteMCP):
+                    self.remote.sync_login()
         if self.rest_credential is not None or self._credential_loader is None:
             return
         try:
@@ -506,9 +517,9 @@ class Bridge:
 
     def profile(self) -> tuple[str, frozenset]:
         """('external', job types) for full API credentials, ('quick', ...) for terminal keys."""
+        self._reload_credential()
         if self._profile:
             return self._profile
-        self._reload_credential()
         if self.rest_credential is None:
             self._client(ExternalClient)  # raises not_signed_in
         try:
@@ -1119,6 +1130,10 @@ class Bridge:
                               "text": json.dumps(payload, sort_keys=True)}]}
 
     def list_tools(self) -> list[dict]:
+        try:
+            self._reload_credential()
+        except (ClerkError, RemoteError):
+            return [json.loads(json.dumps(tool)) for tool in LOCAL_TOOLS]
         if self.guided:
             return mcp_workflows.tools_for(self._guided_request("capabilities", {}))
         tools = [json.loads(json.dumps(tool)) for tool in LOCAL_TOOLS]
@@ -1153,6 +1168,10 @@ class Bridge:
         return tools
 
     def call(self, name: str, arguments: dict) -> dict:
+        try:
+            self._reload_credential()
+        except (ClerkError, RemoteError) as exc:
+            return _error_result("not_signed_in", str(exc))
         if self.guided:
             return self._guided_call(name, arguments)
         if name in LOCAL_NAMES:

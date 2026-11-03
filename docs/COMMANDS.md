@@ -352,3 +352,7 @@ file is reported as a missing file, never as "not signed in".
 Use the server job ID and client version when asking for help. Do not attach
 real configurations, credentials, object names, addresses, or unredacted reports
 to public issues. Redacted reproductions with synthetic data are preferred.
+
+### Re-login while the MCP bridge is running
+
+From 0.7.3, after an expired Clerk login, run `netconverter login --clerk` in a terminal. The running bridge reads the replacement from the same credential store on its next call; REST and remote tools keep using Clerk. Cached session, view and confirmation state is discarded, so an earlier confirmation token must be requested again. If the store is locked, unlock it and retry. Older installed bridges need one reconnect after upgrading to load the new code.

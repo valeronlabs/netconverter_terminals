@@ -12,7 +12,7 @@ import json
 import httpx
 
 from .api import BearerAuth, as_credential, check_url
-from .clerk import ClerkError
+from .clerk import ClerkError, ClerkSession
 
 DEFAULT_MCP_URL = "https://api.netconverter.ai/mcp/v1/"
 CLIENT_PROTOCOL = "2025-06-18"
@@ -45,9 +45,11 @@ class RemoteMCP:
         self.view_mode = view_mode  # requested on every request (#15, #13); the server decides
         self._account_view: str | None = None
         self.view_details: dict = {}  # get_account's view fields, once known
+        self.credential = as_credential(credential)
+        self._credential_generation = 0
         self.http = httpx.Client(
             timeout=90,
-            auth=BearerAuth(as_credential(credential)),
+            auth=BearerAuth(self.credential),
             transport=transport,
             follow_redirects=False,
             trust_env=False,
@@ -60,6 +62,17 @@ class RemoteMCP:
 
     def close(self):
         self.http.close()
+
+    def sync_login(self):
+        if isinstance(self.credential, ClerkSession):
+            try:
+                generation = self.credential.session_generation()
+            except ClerkError as exc:
+                raise RemoteError("unauthorized", str(exc)) from None
+            if generation != self._credential_generation:
+                self._credential_generation = generation
+                self.session_id, self.protocol, self._initialized = None, None, False
+                self._account_view, self.view_details = None, {}
 
     # -- transport ---------------------------------------------------------
 
@@ -164,6 +177,7 @@ class RemoteMCP:
         self._initialized = True
 
     def rpc(self, method: str, params: dict | None = None) -> dict:
+        self.sync_login()
         if not self._initialized:
             self._initialize()
         try:
@@ -194,6 +208,7 @@ class RemoteMCP:
 
         None when the server does not say (an older server, a refused call).
         """
+        self.sync_login()
         if self._account_view is None:
             payload = self.call_tool("get_account", {})
             self._account_view = _view_mode_of(payload) or ""
